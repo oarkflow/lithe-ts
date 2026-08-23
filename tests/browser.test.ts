@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -15,6 +16,13 @@ test('dev server bootstraps HMR before application modules', async t => {
 	assert.ok(html.indexOf('/__lithe_hmr_client.js') < html.indexOf('/src/main.tsx'));
 	const source = await (await fetch(`${dev.url}/src/main.tsx`)).text();
 	assert.match(source, /createHotContext\("\/src\/main\.js"\)/);
+});
+
+test('dev server increments when the requested port is occupied', async t => {
+	const occupied = http.createServer(); await new Promise(resolve => occupied.listen(0, '127.0.0.1', resolve));
+	const port = occupied.address().port, dev = await devServer(new URL('../examples/todo', import.meta.url).pathname, { host: '127.0.0.1', port });
+	t.after(() => { dev.server.close(); occupied.close(); });
+	assert.equal(new URL(dev.url).port, String(port + 1));
 });
 
 test('real Chromium loads compiled example and executes browser runtime', async t => {

@@ -11,7 +11,9 @@ import { inspectImage } from '../tools/image.ts';
 import { typecheckProject } from '../tools/typecheck.ts';
 import { sourcecheck } from '../tools/sourcecheck.ts';
 
-const [command = 'help', arg = '.', ...rest] = process.argv.slice(2);
+const [command = 'help', ...args] = process.argv.slice(2);
+const rest = args.filter(x => x.startsWith('--'));
+const arg = args.find(x => !x.startsWith('--')) || process.cwd();
 const flags = Object.fromEntries(rest.filter(x => x.startsWith('--')).map(x => { const [k, v = 'true'] = x.slice(2).split('='); return [k, v]; }));
 
 try {
