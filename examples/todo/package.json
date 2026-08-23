@@ -1,0 +1,22 @@
+{
+	"name": "lithe-todo-example",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Lithe todo example with component composition, routing, SSR-safe output, and single-file production bundling.",
+	"engines": {
+		"node": ">=22.6.0"
+	},
+	"scripts": {
+		"dev": "node --experimental-strip-types ../../cli/lithe.ts dev .",
+		"build": "node --experimental-strip-types ../../cli/lithe.ts build .",
+		"build:chunks": "node --experimental-strip-types ../../cli/lithe.ts build . --bundle=chunks",
+		"check": "node --experimental-strip-types ../../cli/lithe.ts check .",
+		"typecheck": "node --experimental-strip-types ../../cli/lithe.ts typecheck .",
+		"clean": "rm -rf dist .lithe"
+	},
+	"dependencies": {
+		"lithe": "file:../.."
+	},
+	"devDependencies": { }
+}

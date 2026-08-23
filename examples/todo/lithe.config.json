@@ -1,8 +1,9 @@
 {
 	"sourceMaps": false,
 	"minify": true,
+	"bundle": "single",
 	"performance": {
 		"jsGzip": 20000,
-		"totalBytes": 55000
+		"totalBytes": 60000
 	}
 }

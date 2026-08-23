@@ -113,7 +113,7 @@ Components construct a reactive graph. A signal update targets the affected bind
 
 ```text
 lithe dev <project> [--port=3000]
-lithe build <project>
+  lithe build <project> [--bundle=chunks|single]
 lithe check <project>
 lithe typecheck <project>
 lithe analyze <project>

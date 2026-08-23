@@ -1,0 +1,24 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      lithe:
+        specifier: file:../..
+        version: file:../..
+
+packages:
+
+  lithe@file:../..:
+    resolution: {directory: ../.., type: directory}
+    engines: {node: '>=22.6.0'}
+    hasBin: true
+
+snapshots:
+
+  lithe@file:../..: {}

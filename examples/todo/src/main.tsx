@@ -1,9 +1,9 @@
-import { state, computed } from '@lithe/core';
-import { mount } from '@lithe/dom';
-import { createForm, object, string } from '@lithe/forms';
-import { createRouter, Link, group } from '@lithe/router';
-import { createI18n } from '@lithe/i18n';
-import { defineTheme } from '@lithe/style';
+import { state, computed } from 'lithe/core';
+import { mount } from 'lithe/dom';
+import { createForm, object, string } from 'lithe/forms';
+import { createRouter, Link, group } from 'lithe/router';
+import { createI18n } from 'lithe/i18n';
+import { defineTheme } from 'lithe/style';
 import { Panel } from './components/Panel.tsx';
 import { TodoForm } from './components/TodoForm.tsx';
 import { TodoList } from './components/TodoList.tsx';

@@ -20,6 +20,7 @@ import { renderToStream, streamBoundary } from '../src/server/ssr.ts';
 import { createDevtools } from '../src/devtools/devtools.ts';
 import { createScope } from '../src/core/owner.ts';
 import { installDelegatedEvents, setDelegatedEvent } from '../src/dom/events.ts';
+import { __setAttribute } from '../src/dom/dom.ts';
 import { QueryClient, createStoragePersister, mutation } from '../src/data/query.ts';
 import { createMemoryStorage } from '../src/offline/storage.ts';
 import { imageMetadata } from '../tools/image.ts';
@@ -73,3 +74,5 @@ test('prerender command writes route HTML without dependencies', async () => { c
 test('devtools exposes component metadata and debugger snapshots', () => { const tools = createDevtools(); const scope = createScope(() => 42, { name: 'DebugComponent' }); try { assert.ok(tools.components().some(x => x.name === 'DebugComponent')); tools.debugger.pause(); assert.equal(globalThis.__LITHE_DEBUG_PAUSED__, true); assert.ok(tools.debugger.snapshot().components.some(x => x.name === 'DebugComponent')); tools.debugger.resume(); } finally { scope.dispose(); tools.dispose(); } });
 
 test('delegated events expose the matched element as currentTarget', () => { const listeners = new Map(); const root = { parentNode: null, addEventListener(type, fn) { listeners.set(type, fn); }, removeEventListener() { } }; const input = { parentNode: root }; let current; installDelegatedEvents(root, ['change']); setDelegatedEvent(input, 'onChange', event => { current = event.currentTarget; }); listeners.get('change')({ target: input, cancelBubble: false }); assert.equal(current, input); });
+
+test('DOM attributes follow HTML names and reject unsafe URLs', () => { const attrs = new Map(); const element = { setAttribute(key, value) { attrs.set(key, value); }, removeAttribute(key) { attrs.delete(key); } }; __setAttribute(element, 'className', 'active'); __setAttribute(element, 'htmlFor', 'title'); __setAttribute(element, 'href', 'javascript:alert(1)'); assert.equal(attrs.get('class'), 'active'); assert.equal(attrs.get('for'), 'title'); assert.equal(attrs.has('href'), false); });
