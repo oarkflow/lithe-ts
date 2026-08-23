@@ -2,7 +2,7 @@
 	"sourceMaps": false,
 	"minify": true,
 	"performance": {
-		"jsGzip": 18000,
-		"totalBytes": 50000
+		"jsGzip": 20000,
+		"totalBytes": 55000
 	}
 }

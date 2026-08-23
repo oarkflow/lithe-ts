@@ -13,6 +13,8 @@ test('dev server bootstraps HMR before application modules', async t => {
 	const dev = await devServer(new URL('../examples/todo', import.meta.url).pathname, { port: 0 }); t.after(() => dev.server.close());
 	const html = await (await fetch(dev.url)).text();
 	assert.ok(html.indexOf('/__lithe_hmr_client.js') < html.indexOf('/src/main.tsx'));
+	const source = await (await fetch(`${dev.url}/src/main.tsx`)).text();
+	assert.match(source, /createHotContext\("\/src\/main\.js"\)/);
 });
 
 test('real Chromium loads compiled example and executes browser runtime', async t => {
