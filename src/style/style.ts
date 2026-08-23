@@ -34,7 +34,7 @@ export function defineTheme(tokens, options = {}) {
   walk(tokens);
   const text=`${selector}{${lines.join(';')}}`;
   const name=options.name||`theme-${(++counter).toString(36)}`; sheets.set(name,text);
-  if(typeof document!=='undefined'){ const el=document.createElement('style'); el.dataset.litheStyle=name; el.textContent=text; document.head.appendChild(el); }
+  if(typeof document!=='undefined' && !document.querySelector(`style[data-lithe-style="${name}"]`)){ const el=document.createElement('style'); el.dataset.litheStyle=name; el.textContent=text; document.head.appendChild(el); }
   return { name, cssText:text, var:(path)=>`var(--${String(path).replaceAll('.','-')})` };
 }
 

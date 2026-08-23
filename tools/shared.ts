@@ -48,3 +48,16 @@ export function rewriteBareImports(code, prefix = '/__lithe/') {
 export function rewriteLocalJSX(code) {
 	return code.replace(/((?:from\s+|import\s*\()(['"])([^'"]+))\.(?:jsx|tsx|ts)(['"])/g, '$1.js$4');
 }
+
+export function formatBytes(bytes: number): string {
+	if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes} bytes`;
+	const units = ['KB', 'MB', 'GB', 'TB'];
+	let val = bytes / 1024;
+	let unitIndex = 0;
+	while (val >= 1024 && unitIndex < units.length - 1) {
+		val /= 1024;
+		unitIndex++;
+	}
+	return `${Number(val.toFixed(2))} ${units[unitIndex]}`;
+}
+

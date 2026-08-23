@@ -10,6 +10,7 @@ import { generateTypes } from '../tools/types.ts';
 import { inspectImage } from '../tools/image.ts';
 import { typecheckProject } from '../tools/typecheck.ts';
 import { sourcecheck } from '../tools/sourcecheck.ts';
+import { formatBytes } from '../tools/shared.ts';
 
 const [command = 'help', ...args] = process.argv.slice(2);
 const rest = args.filter(x => x.startsWith('--'));
@@ -18,9 +19,10 @@ const flags = Object.fromEntries(rest.filter(x => x.startsWith('--')).map(x => {
 
 try {
 	if (command === 'dev') { const result = await devServer(arg, { port: flags.port, host: flags.host }); console.log(`Lithe dev server: ${result.url}`); }
-	else if (command === 'build') { const result = await buildProject(arg, { outDir: flags.out, bundle: flags.bundle }); console.log(`Built ${result.manifest.files.length} files (${result.manifest.bytes} bytes) -> ${result.out}`); }
+	else if (command === 'build') { const result = await buildProject(arg, { outDir: flags.out, bundle: flags.bundle }); console.log(`Built ${result.manifest.files.length} files (${formatBytes(result.manifest.bytes)}) -> ${result.out}`); }
 	else if (command === 'check') { const r = await checkProject(arg); for (const i of r.issues) console.log(`[${i.severity.toUpperCase()}] ${i.code} ${i.file}: ${i.message}`); console.log(`${r.files} files checked; ${r.issues.length} issue(s).`); if (!r.ok) process.exitCode = 1; }
-	else if (command === 'analyze') { const r = await analyzeProject(arg); console.table(r.files.slice(0, 25)); console.log(`Total: ${r.total} bytes; gzip: ${r.gzip} bytes`); }
+	else if (command === 'analyze') { const r = await analyzeProject(arg); console.table(r.files.slice(0, 25).map(({ file, size, gzip }) => ({ file, size, gzip }))); console.log(`Total: ${formatBytes(r.total)}; gzip: ${formatBytes(r.gzip)}`); }
+
 	else if (command === 'create') { console.log(`Created ${await createProject(arg)}`); }
 	else if (command === 'prerender') { const r = await prerenderProject(arg, { outDir: flags.out, config: flags.config }); console.log(`Prerendered ${r.routes.length} route(s) -> ${r.out}`); }
 	else if (command === 'types') { const r = await generateTypes(arg, { out: flags.out }); console.log(`Generated ${r.routes.length} route and ${r.actions.length} action declaration(s) -> ${r.out}`); }

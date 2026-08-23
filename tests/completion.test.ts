@@ -90,6 +90,7 @@ test('production chunk reachability keeps event-symbol modules and prunes unreac
 	try {
 		await fs.mkdir(path.join(root, 'src'), { recursive: true }); await fs.mkdir(path.join(root, 'public'), { recursive: true });
 		await fs.writeFile(path.join(root, 'public', 'index.html'), `<div id="app"></div><script type="module" src="/src/main.jsx"></script>`);
+		await fs.writeFile(path.join(root, 'public', 'app.css'), `.ready{color:red}`);
 		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { save } from './events.ts'; import { mount } from '@lithe/dom'; mount(document.getElementById('app'), <button onClick={save}>Save</button>);`);
 		await fs.writeFile(path.join(root, 'src', 'events.js'), `export function save(){ globalThis.__saved=(globalThis.__saved||0)+1 }`);
 		await fs.writeFile(path.join(root, 'src', 'unused.js'), `export const shouldDisappear='unused-marker'`);
@@ -105,10 +106,12 @@ test('production single bundle mode emits one static app entry', async () => {
 	try {
 		await fs.mkdir(path.join(root, 'src'), { recursive: true }); await fs.mkdir(path.join(root, 'public'), { recursive: true });
 		await fs.writeFile(path.join(root, 'public', 'index.html'), `<div id="app"></div><script type="module" src="/src/main.jsx"></script>`);
+		await fs.writeFile(path.join(root, 'public', 'app.css'), `.ready{color:red}`);
 		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@lithe/dom'; export function unusedHelper(){return 'remove-me'} mount(document.getElementById('app'), <main className="ready">Ready</main>);`);
 		const { manifest, out } = await buildProject(root, { bundle: 'single', sourceMaps: false, enforceBudgets: false });
-		assert.equal(manifest.bundle, 'single'); assert.deepEqual(manifest.chunks.entries, ['app.js']); assert.equal(manifest.eventChunks.length, 0); await assert.rejects(fs.access(path.join(out, '__lithe_events')));
+		assert.equal(manifest.bundle, 'single'); assert.deepEqual(manifest.chunks.entries, ['app.js']); assert.equal(manifest.eventChunks.length, 0); assert.equal(manifest.assetVersion, null); await assert.rejects(fs.access(path.join(out, '__lithe_events')));
 		const app = await fs.readFile(path.join(out, 'app.js'), 'utf8'); assert.ok(app.includes('__litheRequire')); assert.doesNotMatch(app, /remove-me/); await assert.rejects(fs.access(path.join(out, 'src', 'main.js')));
 		assert.match(await fs.readFile(path.join(out, 'index.html'), 'utf8'), /src="\/app\.js"/);
+		assert.match(await fs.readFile(path.join(out, 'app.css'), 'utf8'), /\.ready\{color:red\}/); await assert.rejects(fs.access(path.join(out, 'lithe.css')));
 	} finally { await fs.rm(root, { recursive: true, force: true }); }
 });
