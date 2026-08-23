@@ -1,0 +1,31 @@
+{
+  "name": "lithe-zero-framework",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lithe v1.1: a zero-dependency TypeScript-first compiler, fine-grained frontend/full-stack framework built on browser APIs and Node.js built-ins.",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "bin": {
+    "lithe": "./cli/lithe.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "check": "node --experimental-strip-types cli/lithe.ts check examples/todo",
+    "build": "node --experimental-strip-types cli/lithe.ts build examples/todo",
+    "dev": "node --experimental-strip-types cli/lithe.ts dev examples/todo",
+    "analyze": "node --experimental-strip-types cli/lithe.ts analyze examples/todo",
+    "benchmark": "node --experimental-strip-types benchmarks/reactive.ts",
+    "typecheck": "node --experimental-strip-types cli/lithe.ts typecheck examples/todo",
+    "types": "node --experimental-strip-types cli/lithe.ts types examples/todo",
+    "prerender": "node --experimental-strip-types cli/lithe.ts prerender examples/todo",
+    "validate": "node --experimental-strip-types cli/lithe.ts sourcecheck . && node --experimental-strip-types --test tests/*.test.ts && node --experimental-strip-types cli/lithe.ts typecheck examples/todo && node --experimental-strip-types cli/lithe.ts check examples/todo && node --experimental-strip-types cli/lithe.ts build examples/todo",
+    "sourcecheck": "node --experimental-strip-types cli/lithe.ts sourcecheck .",
+    "check:framework": "node --experimental-strip-types cli/lithe.ts check ."
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "types": "./types/lithe.d.ts",
+  "source": "./src/runtime/index.ts"
+}
