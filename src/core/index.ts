@@ -3,7 +3,8 @@ export * from './reactive.ts';
 export * from './reactive-debug.ts';
 export * from './reactive-resume.ts';
 export * from './scheduler.ts';
-export { getOwner, withOwner, createScope, onMount, onCleanup, disposeOwner, createContext } from './owner.ts';
+export { getOwner, withOwner, createScope, onMount, onCleanup, disposeOwner, createContext, useContext } from './owner.ts';
 export * from './adaptive.ts';
-
+export * from './store.ts';
 export * from './owner-resume.ts';
+

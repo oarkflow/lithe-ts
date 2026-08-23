@@ -49,6 +49,23 @@ test('symbol tree shaking removes unused pure exports but preserves requested ex
 	const r = treeShakeModule(code, new Set(['used'])); assert.match(r.code, /function used/); assert.doesNotMatch(r.code, /function unused/); assert.doesNotMatch(r.code, /inert/); assert.deepEqual(new Set(r.removed), new Set(['unused', 'inert']));
 });
 
+test('tree shaking removes unused named imports, default imports and unused destructuring properties', () => {
+	const code = `import { active, unusedImport } from './module.js';
+import UnusedDefault from './other.js';
+import { live } from './live.js';
+const { usedProp, unusedProp } = { usedProp: 1, unusedProp: 2 };
+export function run() {
+	return active() + usedProp + live();
+}`;
+	const r = treeShakeModule(code, new Set(['run']));
+	assert.match(r.code, /import \{ active \} from '\.\/module\.js';/);
+	assert.doesNotMatch(r.code, /unusedImport/);
+	assert.doesNotMatch(r.code, /UnusedDefault/);
+	assert.doesNotMatch(r.code, /unusedProp/);
+	assert.match(r.code, /usedProp/);
+});
+
 test('minifier preserves ASI-sensitive newline after return', () => {
 	const out = minifyJS(`function f(){return\n{value:1}}`); assert.match(out, /return\n\{/); assert.doesNotThrow(() => new Function(out + ';return f')());
 });
+

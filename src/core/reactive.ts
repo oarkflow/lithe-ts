@@ -170,9 +170,172 @@ function getDep(target:object, key:PropertyKey):Dependency {
   return dep;
 }
 
-export function state<T extends object>(target:T):T {
-  if (target === null || typeof target !== 'object') throw new TypeError('state() expects an object or array.');
+export function state<T>(target: T): T {
+  if (target === null || typeof target !== 'object') {
+    return signal(target) as unknown as T;
+  }
+  if (isSignal(target)) return target as T;
   if (proxyCache.has(target)) return proxyCache.get(target) as T;
+
+  // Map Collection
+  if (target instanceof Map) {
+    const map = target;
+    const mapProxy: any = new Proxy(map, {
+      get(obj, key, receiver) {
+        if (key === '__raw') return obj;
+        if (key === 'size') {
+          getDep(obj, 'size').track();
+          return obj.size;
+        }
+        if (key === 'get') {
+          return (k: any) => {
+            getDep(obj, k).track();
+            const val = obj.get(k);
+            return (val && typeof val === 'object') ? state(val) : val;
+          };
+        }
+        if (key === 'has') {
+          return (k: any) => {
+            getDep(obj, k).track();
+            return obj.has(k);
+          };
+        }
+        if (key === 'set') {
+          return (k: any, v: any) => {
+            const had = obj.has(k);
+            const prev = obj.get(k);
+            obj.set(k, v);
+            if (!had || !Object.is(prev, v)) {
+              getDep(obj, k).notify();
+              getDep(obj, 'size').notify();
+              getDep(obj, Symbol.for('iterate')).notify();
+            }
+            return receiver;
+          };
+        }
+        if (key === 'delete') {
+          return (k: any) => {
+            const had = obj.has(k);
+            const ok = obj.delete(k);
+            if (had && ok) {
+              getDep(obj, k).notify();
+              getDep(obj, 'size').notify();
+              getDep(obj, Symbol.for('iterate')).notify();
+            }
+            return ok;
+          };
+        }
+        if (key === 'clear') {
+          return () => {
+            if (obj.size > 0) {
+              const keys = [...obj.keys()];
+              obj.clear();
+              for (const k of keys) getDep(obj, k).notify();
+              getDep(obj, 'size').notify();
+              getDep(obj, Symbol.for('iterate')).notify();
+            }
+          };
+        }
+        if (key === 'keys' || key === 'values' || key === 'entries' || key === Symbol.iterator || key === 'forEach') {
+          getDep(obj, Symbol.for('iterate')).track();
+          const method = (obj as any)[key];
+          return typeof method === 'function' ? method.bind(obj) : method;
+        }
+        const val = Reflect.get(obj, key);
+        return typeof val === 'function' ? val.bind(obj) : val;
+      }
+    });
+    proxyCache.set(target, mapProxy);
+    return mapProxy as T;
+  }
+
+  // Set Collection
+  if (target instanceof Set) {
+    const setObj = target;
+    const setProxy: any = new Proxy(setObj, {
+      get(obj, key, receiver) {
+        if (key === '__raw') return obj;
+        if (key === 'size') {
+          getDep(obj, 'size').track();
+          return obj.size;
+        }
+        if (key === 'has') {
+          return (v: any) => {
+            getDep(obj, v).track();
+            return obj.has(v);
+          };
+        }
+        if (key === 'add') {
+          return (v: any) => {
+            const had = obj.has(v);
+            obj.add(v);
+            if (!had) {
+              getDep(obj, v).notify();
+              getDep(obj, 'size').notify();
+              getDep(obj, Symbol.for('iterate')).notify();
+            }
+            return receiver;
+          };
+        }
+        if (key === 'delete') {
+          return (v: any) => {
+            const had = obj.has(v);
+            const ok = obj.delete(v);
+            if (had && ok) {
+              getDep(obj, v).notify();
+              getDep(obj, 'size').notify();
+              getDep(obj, Symbol.for('iterate')).notify();
+            }
+            return ok;
+          };
+        }
+        if (key === 'clear') {
+          return () => {
+            if (obj.size > 0) {
+              const values = [...obj.values()];
+              obj.clear();
+              for (const v of values) getDep(obj, v).notify();
+              getDep(obj, 'size').notify();
+              getDep(obj, Symbol.for('iterate')).notify();
+            }
+          };
+        }
+        if (key === 'keys' || key === 'values' || key === 'entries' || key === Symbol.iterator || key === 'forEach') {
+          getDep(obj, Symbol.for('iterate')).track();
+          const method = (obj as any)[key];
+          return typeof method === 'function' ? method.bind(obj) : method;
+        }
+        const val = Reflect.get(obj, key);
+        return typeof val === 'function' ? val.bind(obj) : val;
+      }
+    });
+    proxyCache.set(target, setProxy);
+    return setProxy as T;
+  }
+
+  // Date / RegExp / TypedArray built-ins
+  if (target instanceof Date || target instanceof RegExp || ArrayBuffer.isView(target)) {
+    const builtInProxy: any = new Proxy(target as any, {
+      get(obj, key, receiver) {
+        if (key === '__raw') return obj;
+        getDep(obj, key).track();
+        const val = Reflect.get(obj, key);
+        return typeof val === 'function' ? val.bind(obj) : val;
+      },
+      set(obj, key, value, receiver) {
+        const previous = Reflect.get(obj, key);
+        const ok = Reflect.set(obj, key, value, obj);
+        if (!Object.is(previous, value)) {
+          getDep(obj, key).notify();
+        }
+        return ok;
+      }
+    });
+    proxyCache.set(target as any, builtInProxy);
+    return builtInProxy as T;
+  }
+
+  // Plain Objects and Arrays
   const proxy = new Proxy(target, {
     get(obj, key, receiver) {
       if (key === '__raw') return obj;
@@ -200,6 +363,14 @@ export function state<T extends object>(target:T):T {
         if (Array.isArray(obj)) getDep(obj, 'length').notify();
       }
       return ok;
+    },
+    has(obj, key) {
+      getDep(obj, key).track();
+      return Reflect.has(obj, key);
+    },
+    getOwnPropertyDescriptor(obj, key) {
+      getDep(obj, key).track();
+      return Reflect.getOwnPropertyDescriptor(obj, key);
     },
     ownKeys(obj) {
       getDep(obj, Symbol.for('iterate')).track();

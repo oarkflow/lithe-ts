@@ -21,5 +21,55 @@ export function onMount(fn: () => void | (() => void)): void { if (!currentOwner
 export function onCleanup<T extends () => void>(fn: T): T { if (!currentOwner) throw new Error('onCleanup() requires an active reactive scope.'); currentOwner.cleanups.push(fn); return fn; }
 export function disposeOwner(owner: Owner | null | undefined): void { if (!owner || owner.disposed) return; owner.disposed = true; for (const child of [...owner.children]) disposeOwner(child); owner.children.clear(); for (let i = owner.cleanups.length - 1; i >= 0; i--)try { owner.cleanups[i](); } catch (error) { queueMicrotask(() => { throw error; }); } owner.cleanups.length = 0; if (owner.parent) owner.parent.children.delete(owner); hook('dispose', owner); owners.delete(owner.id); }
 export function inspectOwners() { return [...owners.values()].map(owner => ({ id: owner.id, name: owner.name, parent: owner.parent?.id || null, children: [...owner.children].map(child => child.id), disposed: owner.disposed })); }
-export function createContext<T>(defaultValue: T, options: { name?: string } = {}) { const key = Symbol(options.name || 'lithe.context'); return { key, defaultValue, name: options.name || null, provide<R>(value: T, fn: () => R): R | Promise<Awaited<R>> { const scope = createScope(() => { currentOwner!.contexts.set(key, value); hook('context', currentOwner, key, value); return fn(); }, { name: options.name ? `context:${options.name}` : null }); const valueOut = scope.value; if (valueOut && typeof (valueOut as any).then === 'function') return (valueOut as any).finally(scope.dispose); scope.dispose(); return valueOut; }, use(): T { let owner = currentOwner; while (owner) { if (owner.contexts.has(key)) return owner.contexts.get(key) as T; owner = owner.parent; } return defaultValue; } }; }
+export function createContext<T>(defaultValue: T, options: { name?: string } = {}) {
+	const key = Symbol(options.name || 'lithe.context');
+	const Provider = (props: { value: T; children?: any }) => {
+		const owner = getOwner();
+		if (owner) {
+			owner.contexts.set(key, props.value);
+			hook('context', owner, key, props.value);
+		}
+		return props.children ?? null;
+	};
+	return {
+		key,
+		defaultValue,
+		name: options.name || null,
+		Provider,
+		provide<R>(value: T, fn: () => R): R | Promise<Awaited<R>> {
+			const scope = createScope(() => {
+				currentOwner!.contexts.set(key, value);
+				hook('context', currentOwner, key, value);
+				return fn();
+			}, { name: options.name ? `context:${options.name}` : null });
+			const valueOut = scope.value;
+			if (valueOut && typeof (valueOut as any).then === 'function') return (valueOut as any).finally(scope.dispose);
+			scope.dispose();
+			return valueOut;
+		},
+		use(): T {
+			let owner = currentOwner;
+			while (owner) {
+				if (owner.contexts.has(key)) return owner.contexts.get(key) as T;
+				owner = owner.parent;
+			}
+			return defaultValue;
+		}
+	};
+}
+
+export function useContext<T>(context: { use(): T } | { key: symbol; defaultValue: T }): T {
+	if (context && typeof (context as any).use === 'function') return (context as any).use();
+	if (context && 'key' in context) {
+		let owner = currentOwner;
+		while (owner) {
+			if (owner.contexts.has(context.key)) return owner.contexts.get(context.key) as T;
+			owner = owner.parent;
+		}
+		return (context as any).defaultValue;
+	}
+	throw new TypeError('useContext() expects a Context created by createContext().');
+}
+
 export function __setOwnerSequence(value: number): void { ownerSeq = Math.max(ownerSeq, Number(value) || 0); }
+

@@ -2,9 +2,5 @@
 	"sourceMaps": false,
 	"minify": true,
 	"bundle": "single",
-	"assetVersion": true,
-	"performance": {
-		"jsGzip": 20000,
-		"totalBytes": 60000
-	}
+	"assetVersion": true
 }

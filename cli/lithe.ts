@@ -10,6 +10,7 @@ import { generateTypes } from '../tools/types.ts';
 import { inspectImage } from '../tools/image.ts';
 import { typecheckProject } from '../tools/typecheck.ts';
 import { sourcecheck } from '../tools/sourcecheck.ts';
+import { previewProject } from '../tools/preview.ts';
 import { formatBytes } from '../tools/shared.ts';
 
 const [command = 'help', ...args] = process.argv.slice(2);
@@ -19,7 +20,24 @@ const flags = Object.fromEntries(rest.filter(x => x.startsWith('--')).map(x => {
 
 try {
 	if (command === 'dev') { const result = await devServer(arg, { port: flags.port, host: flags.host }); console.log(`Lithe dev server: ${result.url}`); }
-	else if (command === 'build') { const result = await buildProject(arg, { outDir: flags.out, bundle: flags.bundle }); console.log(`Built ${result.manifest.files.length} files (${formatBytes(result.manifest.bytes)}) -> ${result.out}`); }
+	else if (command === 'preview' || command === 'serve') { const result = await previewProject(arg, { port: flags.port, host: flags.host, outDir: flags.out }); console.log(`Lithe preview server: ${result.url} (serving ${result.distDir})`); }
+	else if (command === 'build') {
+		const startTime = performance.now();
+		const isTTY = Boolean(process.stdout.isTTY);
+		const reportProgress = (p: { step: number; total: number; title: string; detail?: string }) => {
+			const pct = Math.round((p.step / p.total) * 100);
+			const msg = `[${p.step}/${p.total}] ${p.title}${p.detail ? ` (${p.detail})` : ''}`;
+			if (isTTY) {
+				process.stdout.write(`\r\x1b[36m⚡ [${pct}%]\x1b[0m ${msg}\x1b[K`);
+			} else {
+				console.log(`⚡ ${msg}`);
+			}
+		};
+		const result = await buildProject(arg, { outDir: flags.out, bundle: flags.bundle, onProgress: reportProgress });
+		const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+		if (isTTY) process.stdout.write('\r\x1b[K');
+		console.log(`✔ Built ${result.manifest.files.length} files (${formatBytes(result.manifest.bytes)}) in ${elapsed}s -> ${result.out}`);
+	}
 	else if (command === 'check') { const r = await checkProject(arg); for (const i of r.issues) console.log(`[${i.severity.toUpperCase()}] ${i.code} ${i.file}: ${i.message}`); console.log(`${r.files} files checked; ${r.issues.length} issue(s).`); if (!r.ok) process.exitCode = 1; }
 	else if (command === 'analyze') { const r = await analyzeProject(arg); console.table(r.files.slice(0, 25).map(({ file, size, gzip }) => ({ file, size, gzip }))); console.log(`Total: ${formatBytes(r.total)}; gzip: ${formatBytes(r.gzip)}`); }
 
@@ -30,7 +48,7 @@ try {
 	else if (command === 'sourcecheck') { const r = await sourcecheck(arg); for (const i of r.issues) console.log(`[ERROR] ${i.code} ${i.file}: ${i.message}`); console.log(`${r.files} TypeScript source file(s) checked; ${r.issues.length} issue(s).`); if (!r.ok) process.exitCode = 1; }
 	else if (command === 'image') { const r = await inspectImage(path.resolve(arg)); console.log(JSON.stringify(r, null, 2)); }
 	else {
-		console.log(`Lithe zero-dependency CLI\n\nCommands:\n  lithe dev <project> [--port=3000]\n  lithe build <project>\n  lithe check <project>\n  lithe analyze <project>\n  lithe create <directory>
+		console.log(`Lithe zero-dependency CLI\n\nCommands:\n  lithe dev <project> [--port=3000]\n  lithe build <project>\n  lithe preview <project> [--port=4173]\n  lithe check <project>\n  lithe analyze <project>\n  lithe create <directory>
   lithe prerender <project> [--out=dist]
   lithe types <project> [--out=lithe.generated.d.ts]
   lithe typecheck <project>
