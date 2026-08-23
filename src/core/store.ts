@@ -81,13 +81,14 @@ function clone<T>(val: T): T {
 function deepMerge(target: any, source: any): any {
 	if (!source || typeof source !== 'object') return source;
 	if (Array.isArray(source)) return source;
-	for (const key of Object.keys(source)) {
+	for (const key in source) {
 		const srcVal = source[key];
 		if (srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) && !(srcVal instanceof Date) && !(srcVal instanceof RegExp) && !(srcVal instanceof Map) && !(srcVal instanceof Set)) {
-			if (!target[key] || typeof target[key] !== 'object') {
-				target[key] = {};
+			let tVal = target[key];
+			if (!tVal || typeof tVal !== 'object') {
+				target[key] = tVal = {};
 			}
-			deepMerge(target[key], srcVal);
+			deepMerge(tVal, srcVal);
 		} else {
 			target[key] = srcVal;
 		}
@@ -120,25 +121,23 @@ export function createStore<T, Actions extends object = {}>(
 
 	const rawSetState = (action: SetStateAction<T & Actions>, actionName?: string) => {
 		const target = reactiveState || initialData;
-		const prev = clone(target);
-		batch(() => {
-			if (isScalar) {
-				if (typeof action === 'function') {
-					target.value = (action as any)(target.value);
-				} else {
-					target.value = action;
-				}
+		const prev = listeners.size > 0 ? clone(target) : null;
+		if (isScalar) {
+			if (typeof action === 'function') {
+				target.value = (action as any)(target.value);
 			} else {
-				if (typeof action === 'function') {
-					const result = (action as any)(target);
-					if (result && typeof result === 'object') {
-						Object.assign(target, result);
-					}
-				} else if (action && typeof action === 'object') {
-					Object.assign(target, action);
-				}
+				target.value = action;
 			}
-		});
+		} else {
+			if (typeof action === 'function') {
+				const result = (action as any)(target);
+				if (result && typeof result === 'object') {
+					for (const k in result) (target as any)[k] = result[k];
+				}
+			} else if (action && typeof action === 'object') {
+				for (const k in action) (target as any)[k] = (action as any)[k];
+			}
+		}
 		if (listeners.size > 0 && reactiveState) {
 			const next = getState();
 			for (const listener of [...listeners]) {
@@ -152,7 +151,7 @@ export function createStore<T, Actions extends object = {}>(
 
 	const patch = (partialOrUpdater: Partial<T & Actions> | ((state: T & Actions) => Partial<T & Actions> | void), actionName = 'patch'): void => {
 		const target = reactiveState || initialData;
-		const prev = clone(target);
+		const prev = listeners.size > 0 ? clone(target) : null;
 		batch(() => {
 			if (isScalar) {
 				if (typeof partialOrUpdater === 'function') {

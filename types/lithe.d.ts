@@ -104,3 +104,29 @@ declare module '@lithe/compiler' {
 }
 
 declare module 'lithe-zero-framework' { export * from '@lithe/runtime'; }
+declare module 'lithe' { export * from '@lithe/runtime'; }
+declare module 'lithe/core' { export * from '@lithe/core'; }
+declare module 'lithe/dom' { export * from '@lithe/dom'; }
+declare module 'lithe/router' { export * from '@lithe/router'; }
+declare module 'lithe/forms' { export * from '@lithe/forms'; }
+declare module 'lithe/data' { export * from '@lithe/data'; }
+declare module 'lithe/collection' { export * from '@lithe/collection'; }
+declare module 'lithe/ui' { export * from '@lithe/ui'; }
+declare module 'lithe/style' { export * from '@lithe/style'; }
+declare module 'lithe/worker' { export * from '@lithe/worker'; }
+declare module 'lithe/offline' { export * from '@lithe/offline'; }
+declare module 'lithe/i18n' { export * from '@lithe/i18n'; }
+declare module 'lithe/head' { export * from '@lithe/head'; }
+declare module 'lithe/permissions' { export * from '@lithe/permissions'; }
+declare module 'lithe/testing' { export * from '@lithe/testing'; }
+declare module 'lithe/app' { export * from '@lithe/app'; }
+declare module 'lithe/runtime' { export * from '@lithe/runtime'; }
+declare module 'lithe/compiler' { export * from '@lithe/compiler'; }
+declare module 'lithe/virtual' { export * from '@lithe/virtual'; }
+declare module 'lithe/grid' { export * from '@lithe/grid'; }
+declare module 'lithe/image' { export * from '@lithe/image'; }
+declare module 'lithe/animation' { export * from '@lithe/animation'; }
+declare module 'lithe/interop' { export * from '@lithe/interop'; }
+declare module 'lithe/devtools' { export * from '@lithe/devtools'; }
+declare module 'lithe/observability' { export * from '@lithe/observability'; }
+

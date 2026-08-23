@@ -2,45 +2,135 @@ import { schedule } from './scheduler.ts';
 import { getOwner, onCleanup, withOwner } from './owner.ts';
 import type { Priority, Signal, ReadonlySignal, SignalOptions, ObserverOptions } from './types.ts';
 
-let activeObserver: Observer | null = null;
+let activeObserver: any = null;
 let tracking = true;
 let batchDepth = 0;
 let reactiveSeq = 0;
-const pendingObservers = new Set<Observer>();
+const pendingObservers = new Set<any>();
 const proxyCache = new WeakMap<object, object>();
 const depsByTarget = new WeakMap<object, Map<PropertyKey, Dependency>>();
 
-class Dependency {
-  id:number; subscribers:Set<Observer>; label:string; kind:string; sources:Set<Dependency>;
-  constructor(label = '',kind='dependency') { this.id = ++reactiveSeq; this.subscribers = new Set<Observer>(); this.label = label; this.kind=kind; this.sources = new Set<Dependency>(); globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerDependency?.(this); }
+const STATE_CLEAN = 0;
+const STATE_DIRTY = 1;
+
+export class Dependency {
+  id: number;
+  label: string;
+  kind: string;
+  version: number;
+  _sub1: any = null;
+  _subs: any[] | null = null;
+  _subscribers: Set<any> | null = null;
+
+  get subscribers(): Set<any> {
+    if (!this._subscribers) {
+      this._subscribers = new Set<any>();
+      if (this._subs) {
+        for (let i = 0; i < this._subs.length; i++) this._subscribers.add(this._subs[i]);
+      } else if (this._sub1) {
+        this._subscribers.add(this._sub1);
+      }
+    }
+    return this._subscribers;
+  }
+
+  constructor(label = '', kind = 'dependency') {
+    this.id = ++reactiveSeq;
+    this.label = label;
+    this.kind = kind;
+    this.version = 0;
+    if (globalThis.__LITHE_REACTIVE_DEBUG_HOOK__) {
+      globalThis.__LITHE_REACTIVE_DEBUG_HOOK__.registerDependency?.(this);
+    }
+  }
+
+  addSubscriber(sub: any) {
+    if (this._subscribers) this._subscribers.add(sub);
+    if (!this._sub1) {
+      this._sub1 = sub;
+    } else if (this._sub1 === sub) {
+      return;
+    } else if (!this._subs) {
+      this._subs = [this._sub1, sub];
+    } else if (this._subs.indexOf(sub) === -1) {
+      this._subs.push(sub);
+    }
+  }
+
+  removeSubscriber(sub: any) {
+    if (this._subscribers) this._subscribers.delete(sub);
+    if (this._sub1 === sub) {
+      if (this._subs && this._subs.length > 1) {
+        const idx = this._subs.indexOf(sub);
+        if (idx !== -1) this._subs.splice(idx, 1);
+        this._sub1 = this._subs[0];
+      } else {
+        this._sub1 = null;
+        this._subs = null;
+      }
+    } else if (this._subs) {
+      const idx = this._subs.indexOf(sub);
+      if (idx !== -1) this._subs.splice(idx, 1);
+    }
+  }
+
   track() {
     if (!tracking || !activeObserver) return;
-    this.subscribers.add(activeObserver);
-    activeObserver.dependencies.add(this);
+    activeObserver.addDependency(this);
   }
+
   notify() {
-    for (const observer of [...this.subscribers]) { observer.lastCause={id:this.id,name:this.label||null,kind:this.kind}; queueObserver(observer); }
+    this.version++;
+    if (this._subs) {
+      const arr = this._subs;
+      const len = arr.length;
+      for (let i = 0; i < len; i++) {
+        arr[i].markDirty(this);
+      }
+    } else if (this._sub1) {
+      this._sub1.markDirty(this);
+    }
   }
 }
 
-function queueObserver(observer: Observer) {
+function queueObserver(observer: any) {
   if (observer.disposed) return;
-  if (batchDepth) { pendingObservers.add(observer); return; }
+  if (batchDepth) {
+    pendingObservers.add(observer);
+    return;
+  }
   if (observer.sync) observer.run();
   else schedule(() => observer.run(), observer.priority || 'normal');
 }
 
 function flushBatch() {
-  const list = [...pendingObservers];
+  const list = Array.from(pendingObservers);
   pendingObservers.clear();
-  for (const observer of list) queueObserver(observer);
+  for (const observer of list) {
+    queueObserver(observer);
+  }
 }
 
-class Observer<T=unknown> {
-  fn:(cleanup:(fn:()=>void)=>void)=>T; dependencies:Set<Dependency>; cleanups:Array<()=>void>; disposed:boolean; running:boolean; sync:boolean; priority:Priority; value:T|undefined; owner:ReturnType<typeof getOwner>; id:number; onInvalidate?:()=>void; kind:string; label:string; output:Dependency|null; lastCause:{id:number;name:string|null;kind:string}|null;
-  constructor(fn:(cleanup:(fn:()=>void)=>void)=>T, options:ObserverOptions & {kind?:string;onInvalidate?:()=>void} = {}) {
+export class Observer<T = unknown> {
+  fn: (cleanup: (fn: () => void) => void) => T;
+  dependencies: Dependency[];
+  cleanups: Array<() => void>;
+  disposed: boolean;
+  running: boolean;
+  sync: boolean;
+  priority: Priority;
+  value: T | undefined;
+  owner: ReturnType<typeof getOwner>;
+  id: number;
+  onInvalidate?: () => void;
+  kind: string;
+  label: string;
+  output: Dependency | null;
+  lastCause: { id: number; name: string | null; kind: string } | null;
+
+  constructor(fn: (cleanup: (fn: () => void) => void) => T, options: ObserverOptions & { kind?: string; onInvalidate?: () => void } = {}) {
     this.fn = fn;
-    this.dependencies = new Set();
+    this.dependencies = [];
     this.cleanups = [];
     this.disposed = false;
     this.running = false;
@@ -50,31 +140,59 @@ class Observer<T=unknown> {
     this.owner = getOwner();
     this.id = ++reactiveSeq;
     this.onInvalidate = options.onInvalidate;
-    this.kind=options.kind||'effect';this.label=options.name||'';this.output=null;this.lastCause=null;globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerObserver?.(this);
+    this.kind = options.kind || 'effect';
+    this.label = options.name || '';
+    this.output = null;
+    this.lastCause = null;
+    globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerObserver?.(this);
     this.run();
   }
+
+  addDependency(dep: Dependency) {
+    this.dependencies.push(dep);
+    dep.addSubscriber(this);
+  }
+
+  markDirty(cause?: Dependency) {
+    if (this.disposed) return;
+    if (cause) {
+      this.lastCause = { id: cause.id, name: cause.label || null, kind: cause.kind };
+    }
+    this.onInvalidate?.();
+    queueObserver(this);
+  }
+
   cleanupDeps() {
-    for (const dep of this.dependencies) dep.subscribers.delete(this);
-    this.dependencies.clear();
-    for (let i = this.cleanups.length - 1; i >= 0; i--) this.cleanups[i]();
+    const len = this.dependencies.length;
+    for (let i = 0; i < len; i++) {
+      this.dependencies[i].removeSubscriber(this);
+    }
+    this.dependencies.length = 0;
+    for (let i = this.cleanups.length - 1; i >= 0; i--) {
+      this.cleanups[i]();
+    }
     this.cleanups.length = 0;
   }
+
   run() {
     if (this.disposed || this.running) return this.value;
     this.running = true;
     this.cleanupDeps();
     const previous = activeObserver;
     activeObserver = this;
-    const previousCause=globalThis.__LITHE_REACTIVE_CAUSE__;globalThis.__LITHE_REACTIVE_CAUSE__=this.lastCause;
+    const previousCause = globalThis.__LITHE_REACTIVE_CAUSE__;
+    globalThis.__LITHE_REACTIVE_CAUSE__ = this.lastCause;
     try {
       const invoke = () => this.fn((cleanup) => this.cleanups.push(cleanup));
       this.value = this.owner ? withOwner(this.owner, invoke) : invoke();
       return this.value;
     } finally {
-      globalThis.__LITHE_REACTIVE_CAUSE__=previousCause;activeObserver = previous;
+      globalThis.__LITHE_REACTIVE_CAUSE__ = previousCause;
+      activeObserver = previous;
       this.running = false;
     }
   }
+
   dispose() {
     this.disposed = true;
     globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.unregisterObserver?.(this);
@@ -82,91 +200,291 @@ class Observer<T=unknown> {
   }
 }
 
-export function signal<T>(initial:T, options:SignalOptions = {}): Signal<T> {
-  const resumeSnapshot=globalThis.__LITHE_RESUME_SIGNAL_SNAPSHOT__||{};let value = options.name && Object.prototype.hasOwnProperty.call(globalThis.__LITHE_HMR_SIGNAL_SNAPSHOT__||{},options.name) ? globalThis.__LITHE_HMR_SIGNAL_SNAPSHOT__[options.name] : (options.name && Object.prototype.hasOwnProperty.call(resumeSnapshot,options.name) ? resumeSnapshot[options.name] : initial);
-  const dep = new Dependency(options.name,'signal');
-  const api: Signal<T> & {__dep:Dependency} = {
-    get value() { dep.track(); return value; },
-    set value(next) {
-      const resolved = typeof next === 'function' ? (next as unknown as (value:T)=>T)(value) : next;
-      if (Object.is(value, resolved)) return;
-      const previous = value;
-      value = resolved;
-      try{globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.mutation?.({type:'signal',id:dep.id,name:dep.label||null,previous,value:resolved,at:Date.now(),signal:api});}catch{}
-      dep.notify();
-    },
-    peek() { return value; },
-    update(fn:(value:T)=>T) { api.value = fn(value); return value; },
-    subscribe(fn:(value:T)=>void, opts:ObserverOptions = {}) {
-      const obs = new Observer(() => fn(api.value), { sync: opts.sync ?? true, priority: opts.priority });
-      return () => obs.dispose();
-    },
-    toJSON() { return value; },
-    valueOf() { return value; },
-    toString() { return String(value); },
-    __litheSignal: true,
-    __dep: dep,
-    __litheName: options.name || null
-  };
-  if (options.name) { (globalThis.__LITHE_NAMED_SIGNALS__||=new Map()).set(options.name,api); const wait=globalThis.__LITHE_RESUME_SIGNAL_WAITERS__?.get?.(options.name);if(wait){for(const fn of [...wait])try{fn(api);}catch{}globalThis.__LITHE_RESUME_SIGNAL_WAITERS__.delete(options.name);} if(globalThis.__LITHE_HMR__){globalThis.__LITHE_HMR_SIGNAL_REGISTRY__||=new Map();globalThis.__LITHE_HMR_SIGNAL_REGISTRY__.set(options.name,api);} }
-  return api;
-}
+export class SignalImpl<T> extends Dependency implements Signal<T> {
+  _value: T;
+  __litheSignal = true;
+  __dep: Dependency;
+  __litheName: string | null = null;
 
-export function computed<T>(fn:()=>T, options:SignalOptions = {}): ReadonlySignal<T> {
-  const out = signal<T|undefined>(undefined, options);
-  let initialized = false;
-  const obs = new Observer(() => {
-    const next = fn();
-    if (!initialized || !Object.is(out.peek(), next)) {
-      initialized = true;
-      out.value = next;
+  constructor(initial: T, options: SignalOptions = {}) {
+    super(options.name || '', 'signal');
+    const name = options.name;
+    let val = initial;
+    if (name) {
+      const resumeSnapshot = globalThis.__LITHE_RESUME_SIGNAL_SNAPSHOT__;
+      const hmrSnapshot = globalThis.__LITHE_HMR_SIGNAL_SNAPSHOT__;
+      if (hmrSnapshot && Object.prototype.hasOwnProperty.call(hmrSnapshot, name)) {
+        val = hmrSnapshot[name];
+      } else if (resumeSnapshot && Object.prototype.hasOwnProperty.call(resumeSnapshot, name)) {
+        val = resumeSnapshot[name];
+      }
     }
-  }, { sync: true, kind:'computed', name:options.name });
-  obs.output=out.__dep;
-  const owner = getOwner();
-  if (owner) onCleanup(() => obs.dispose());
-  return Object.freeze({
-    get value() { return out.value; },
-    peek: out.peek,
-    subscribe: out.subscribe,
-    toJSON: out.toJSON,
-    valueOf: out.valueOf,
-    toString: out.toString,
-    __litheSignal: true,
-    __computed: true
-  });
+    this._value = val;
+    this.__dep = this;
+    this.__litheName = name || null;
+
+    if (name) {
+      (globalThis.__LITHE_NAMED_SIGNALS__ ||= new Map()).set(name, this);
+      const wait = globalThis.__LITHE_RESUME_SIGNAL_WAITERS__?.get?.(name);
+      if (wait) {
+        for (const fn of Array.from(wait)) {
+          try { fn(this); } catch { }
+        }
+        globalThis.__LITHE_RESUME_SIGNAL_WAITERS__.delete(name);
+      }
+      if (globalThis.__LITHE_HMR__) {
+        (globalThis.__LITHE_HMR_SIGNAL_REGISTRY__ ||= new Map()).set(name, this);
+      }
+    }
+  }
+
+  get value(): T {
+    this.track();
+    return this._value;
+  }
+
+  set value(next: T | ((prev: T) => T)) {
+    const resolved = typeof next === 'function' ? (next as any)(this._value) : next;
+    if (this._value === resolved) return;
+    if (this._value !== this._value && resolved !== resolved) return;
+    const previous = this._value;
+    this._value = resolved;
+    if (globalThis.__LITHE_REACTIVE_DEBUG_HOOK__) {
+      try {
+        globalThis.__LITHE_REACTIVE_DEBUG_HOOK__.mutation?.({
+          type: 'signal',
+          id: this.id,
+          name: this.label || null,
+          previous,
+          value: resolved,
+          at: Date.now(),
+          signal: this
+        });
+      } catch { }
+    }
+    this.notify();
+  }
+
+  peek(): T {
+    return this._value;
+  }
+
+  update(fn: (value: T) => T): T {
+    this.value = fn(this._value);
+    return this._value;
+  }
+
+  subscribe(fn: (value: T) => void, opts: ObserverOptions = {}) {
+    const obs = new Observer(() => fn(this.value), { sync: opts.sync ?? true, priority: opts.priority });
+    return () => obs.dispose();
+  }
+
+  toJSON() { return this._value; }
+  valueOf() { return this._value; }
+  toString() { return String(this._value); }
 }
 
-export function effect(fn:(cleanup:(fn:()=>void)=>void)=>unknown, options:ObserverOptions = {}):()=>void {
-  const obs = new Observer(fn, { sync: options.sync ?? false, priority: options.priority || 'normal', kind:'effect', name:options.name });
+export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
+  _fn: () => T;
+  _value: T = undefined as any;
+  _state: number = STATE_DIRTY;
+  _deps: Dependency[] = [];
+  _depVersions: number[] = [];
+  _owner: ReturnType<typeof getOwner>;
+  _disposed = false;
+  __litheSignal = true;
+  __computed = true;
+  __dep: Dependency;
+
+  _dep1: Dependency | null = null;
+  _dep1Version = -1;
+
+  constructor(fn: () => T, options: SignalOptions = {}) {
+    super(options.name || '', 'computed');
+    this._fn = fn;
+    this.__dep = this;
+    this._owner = getOwner();
+    if (this._owner) {
+      onCleanup(() => this.dispose());
+    }
+  }
+
+  addDependency(dep: Dependency) {
+    if (!this._dep1) {
+      this._dep1 = dep;
+      this._dep1Version = dep.version;
+    } else {
+      this._deps.push(dep);
+      this._depVersions.push(dep.version);
+    }
+    dep.addSubscriber(this);
+  }
+
+  markDirty(cause?: Dependency) {
+    if (this._state === STATE_DIRTY) return;
+    this._state = STATE_DIRTY;
+    if (this._subs) {
+      const arr = this._subs;
+      const len = arr.length;
+      for (let i = 0; i < len; i++) {
+        arr[i].markDirty(this);
+      }
+    } else if (this._sub1) {
+      this._sub1.markDirty(this);
+    }
+  }
+
+  _update() {
+    if (this._state === STATE_CLEAN) return;
+
+    if (this._dep1) {
+      let changed = false;
+      if (this._dep1 instanceof ComputedImpl && this._dep1._state !== STATE_CLEAN) {
+        this._dep1._update();
+      }
+      if (this._dep1Version !== this._dep1.version) {
+        changed = true;
+      }
+      if (!changed && this._deps.length > 0) {
+        const len = this._deps.length;
+        for (let i = 0; i < len; i++) {
+          const dep = this._deps[i];
+          if (dep instanceof ComputedImpl && dep._state !== STATE_CLEAN) {
+            dep._update();
+          }
+          if (this._depVersions[i] !== dep.version) {
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (!changed) {
+        this._state = STATE_CLEAN;
+        return;
+      }
+
+      // In-place re-evaluation without resubscription churn
+      const prevObserver = activeObserver;
+      activeObserver = null;
+      try {
+        const nextVal = this._owner ? withOwner(this._owner, this._fn) : this._fn();
+        if (!Object.is(this._value, nextVal)) {
+          this._value = nextVal;
+          this.version++;
+        }
+        this._state = STATE_CLEAN;
+        this._dep1Version = this._dep1.version;
+        for (let i = 0; i < this._deps.length; i++) {
+          this._depVersions[i] = this._deps[i].version;
+        }
+      } finally {
+        activeObserver = prevObserver;
+      }
+      return;
+    }
+
+    // Initial evaluation with dependency tracking
+    const prevObserver = activeObserver;
+    activeObserver = this;
+    try {
+      const nextVal = this._owner ? withOwner(this._owner, this._fn) : this._fn();
+      if (!Object.is(this._value, nextVal)) {
+        this._value = nextVal;
+        this.version++;
+      }
+      this._state = STATE_CLEAN;
+      if (this._dep1) this._dep1Version = this._dep1.version;
+      for (let i = 0; i < this._deps.length; i++) {
+        this._depVersions[i] = this._deps[i].version;
+      }
+    } finally {
+      activeObserver = prevObserver;
+    }
+  }
+
+  get value(): T {
+    this.track();
+    if (this._state !== STATE_CLEAN) {
+      this._update();
+    }
+    return this._value;
+  }
+
+  peek(): T {
+    if (this._state !== STATE_CLEAN) {
+      this._update();
+    }
+    return this._value;
+  }
+
+  subscribe(fn: (value: T) => void, opts: ObserverOptions = {}) {
+    const obs = new Observer(() => fn(this.value), { sync: opts.sync ?? true, priority: opts.priority });
+    return () => obs.dispose();
+  }
+
+  dispose() {
+    this._disposed = true;
+    if (this._dep1) {
+      this._dep1.removeSubscriber(this);
+      this._dep1 = null;
+    }
+    const len = this._deps.length;
+    for (let i = 0; i < len; i++) {
+      this._deps[i].removeSubscriber(this);
+    }
+    this._deps.length = 0;
+    this._depVersions.length = 0;
+  }
+
+  toJSON() { return this.value; }
+  valueOf() { return this.value; }
+  toString() { return String(this.value); }
+}
+
+export function signal<T>(initial: T, options: SignalOptions = {}): Signal<T> {
+  return new SignalImpl(initial, options);
+}
+
+export function computed<T>(fn: () => T, options: SignalOptions = {}): ReadonlySignal<T> {
+  return new ComputedImpl(fn, options);
+}
+
+export function effect(fn: (cleanup: (fn: () => void) => void) => unknown, options: ObserverOptions = {}): () => void {
+  const obs = new Observer(fn, { sync: options.sync ?? false, priority: options.priority || 'normal', kind: 'effect', name: options.name });
   const owner = getOwner();
   if (owner) onCleanup(() => obs.dispose());
   return () => obs.dispose();
 }
 
-export function batch<T>(fn:()=>T):T {
+export function batch<T>(fn: () => T): T {
   batchDepth++;
-  try { return fn(); }
-  finally {
+  try {
+    return fn();
+  } finally {
     batchDepth--;
     if (batchDepth === 0) flushBatch();
   }
 }
 
-export function untrack<T>(fn:()=>T):T {
+export function untrack<T>(fn: () => T): T {
   const previous = tracking;
   tracking = false;
   try { return fn(); } finally { tracking = previous; }
 }
 
-export function isSignal(value:unknown): value is Signal<unknown>|ReadonlySignal<unknown> { return Boolean(value && typeof value==='object' && (value as any).__litheSignal); }
-export function unwrap<T>(value:T|Signal<T>|ReadonlySignal<T>):T { return isSignal(value) ? value.value as T : value as T; }
+export function isSignal(value: unknown): value is Signal<unknown> | ReadonlySignal<unknown> {
+  return Boolean(value && typeof value === 'object' && (value as any).__litheSignal);
+}
 
-function getDep(target:object, key:PropertyKey):Dependency {
+export function unwrap<T>(value: T | Signal<T> | ReadonlySignal<T>): T {
+  return isSignal(value) ? (value as any).value as T : value as T;
+}
+
+function getDep(target: object, key: PropertyKey): Dependency {
   let map = depsByTarget.get(target);
   if (!map) depsByTarget.set(target, map = new Map());
   let dep = map.get(key);
-  if (!dep) map.set(key, dep = new Dependency(String(key),'state-property'));
+  if (!dep) map.set(key, dep = new Dependency(String(key), 'state-property'));
   return dep;
 }
 
@@ -228,7 +546,7 @@ export function state<T>(target: T): T {
         if (key === 'clear') {
           return () => {
             if (obj.size > 0) {
-              const keys = [...obj.keys()];
+              const keys = Array.from(obj.keys());
               obj.clear();
               for (const k of keys) getDep(obj, k).notify();
               getDep(obj, 'size').notify();
@@ -292,7 +610,7 @@ export function state<T>(target: T): T {
         if (key === 'clear') {
           return () => {
             if (obj.size > 0) {
-              const values = [...obj.values()];
+              const values = Array.from(obj.values());
               obj.clear();
               for (const v of values) getDep(obj, v).notify();
               getDep(obj, 'size').notify();
@@ -340,19 +658,19 @@ export function state<T>(target: T): T {
     get(obj, key, receiver) {
       if (key === '__raw') return obj;
       getDep(obj, key).track();
-      const value = Reflect.get(obj, key, receiver);
+      const value = (obj as any)[key];
       if (value && typeof value === 'object') return state(value);
       return value;
     },
     set(obj, key, value, receiver) {
-      const previous = Reflect.get(obj,key);
-      const ok = Reflect.set(obj, key, value, receiver);
-      if (!Object.is(previous, value)) {
-        getDep(obj, key).notify();
-        if (Array.isArray(obj) && key !== 'length') getDep(obj, 'length').notify();
-        getDep(obj, Symbol.for('iterate')).notify();
-      }
-      return ok;
+      const unwrapped = value && (value as any).__raw ? (value as any).__raw : value;
+      const previous = (obj as any)[key];
+      if (previous === unwrapped) return true;
+      (obj as any)[key] = unwrapped;
+      getDep(obj, key).notify();
+      if (Array.isArray(obj) && key !== 'length') getDep(obj, 'length').notify();
+      getDep(obj, Symbol.for('iterate')).notify();
+      return true;
     },
     deleteProperty(obj, key) {
       const had = key in obj;
@@ -378,12 +696,17 @@ export function state<T>(target: T): T {
     }
   });
   proxyCache.set(target, proxy);
+  proxyCache.set(proxy, proxy);
   return proxy as T;
 }
 
-export function watch<T>(source:Signal<T>|ReadonlySignal<T>|(()=>T), callback:(value:T,previous:T|undefined)=>void, options:ObserverOptions & {immediate?:boolean;deep?:boolean} = {}):()=>void {
+export function watch<T>(
+  source: Signal<T> | ReadonlySignal<T> | (() => T),
+  callback: (value: T, previous: T | undefined) => void,
+  options: ObserverOptions & { immediate?: boolean; deep?: boolean } = {}
+): () => void {
   let first = true;
-  let previous:T|undefined;
+  let previous: T | undefined;
   return effect(() => {
     const next = typeof source === 'function' ? source() : unwrap(source);
     if (first) {
@@ -399,4 +722,3 @@ export function watch<T>(source:Signal<T>|ReadonlySignal<T>|(()=>T), callback:(v
     }
   }, options);
 }
-

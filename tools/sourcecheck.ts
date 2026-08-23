@@ -13,7 +13,7 @@ const DEFAULT_ROOTS=['src','tools','cli','tests','benchmarks','examples'];
 export async function sourcecheck(rootDir='.',options:{roots?:string[]}={}):Promise<SourceCheckResult>{
   const root=path.resolve(rootDir),issues:SourceCheckIssue[]=[],javascriptFiles:string[]=[];let files=0;
   for(const name of options.roots||DEFAULT_ROOTS){const dir=path.join(root,name);if(!await exists(dir))continue;for(const file of await walk(dir)){
-    const rel=path.relative(root,file).replace(/\\/g,'/');if(rel.includes('/dist/')||rel.includes('/.lithe/'))continue;
+    const rel=path.relative(root,file).replace(/\\/g,'/');if(rel.includes('/dist/')||rel.includes('/.lithe/')||rel.includes('node_modules/'))continue;
     if(file.endsWith('.js')){javascriptFiles.push(rel);continue;}
     if(file.endsWith('.d.ts'))continue;
     if(!/\.(?:ts|tsx)$/.test(file))continue;files++;
