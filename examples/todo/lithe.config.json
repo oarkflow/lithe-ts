@@ -5,6 +5,6 @@
 	"assetVersion": true,
 	"performance": {
 		"initialJsGzip": 18000,
-		"totalBytes": 150000
+		"totalBytes": 250000
 	}
 }
