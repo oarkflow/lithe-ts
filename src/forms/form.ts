@@ -27,4 +27,5 @@ export function createForm<T extends Record<string,any>=Record<string,any>>(opti
   const reset=(next=initial)=>batch(()=>{for(const k of Object.keys(values))delete values[k];Object.assign(values,clone(next));for(const o of[errors,touched,dirty])for(const k of Object.keys(o))delete o[k];submitting.value=false;submitted.value=false;submitError.value=null;});
   return{values,errors,touched,dirty,field,get:getPath.bind(null,values),set:setValue,validate,validateField,submit,reset,get submitting(){return submitting.value;},get validating(){return validating.value;},get submitted(){return submitted.value;},get submitError(){return submitError.value;},get valid(){return Object.keys(errors).length===0;},props:{onSubmit:submit,noValidate:true}} as FormApi<T>;
 }
+export function defineForm<T extends Record<string,any>>(options:FormOptions<T>):FormOptions<T>{return options;}
 export function formDataToObject(formData:FormData):Record<string,FormDataEntryValue|FormDataEntryValue[]>{const out={};for(const[k,v]of formData.entries())out[k]=k in out?(Array.isArray(out[k])?[...out[k],v]:[out[k],v]):v;return out;}

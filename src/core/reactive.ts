@@ -44,20 +44,26 @@ export class Dependency {
     }
   }
 
+  hasSubscriber(sub: any): boolean {
+    if (this._sub1 === sub) return true;
+    if (this._subs && this._subs.indexOf(sub) !== -1) return true;
+    return Boolean(this._subscribers?.has(sub));
+  }
+
   addSubscriber(sub: any) {
+    if (this.hasSubscriber(sub)) return;
     if (this._subscribers) this._subscribers.add(sub);
     if (!this._sub1) {
       this._sub1 = sub;
-    } else if (this._sub1 === sub) {
-      return;
     } else if (!this._subs) {
       this._subs = [this._sub1, sub];
-    } else if (this._subs.indexOf(sub) === -1) {
+    } else {
       this._subs.push(sub);
     }
   }
 
   removeSubscriber(sub: any) {
+    if (!this.hasSubscriber(sub)) return;
     if (this._subscribers) this._subscribers.delete(sub);
     if (this._sub1 === sub) {
       if (this._subs && this._subs.length > 1) {
@@ -149,6 +155,7 @@ export class Observer<T = unknown> {
   }
 
   addDependency(dep: Dependency) {
+    if (this.dependencies.indexOf(dep) !== -1) return;
     this.dependencies.push(dep);
     dep.addSubscriber(this);
   }
@@ -202,6 +209,7 @@ export class Observer<T = unknown> {
 
 export class SignalImpl<T> extends Dependency implements Signal<T> {
   _value: T;
+  _equals: false | ((previous: T, next: T) => boolean);
   __litheSignal = true;
   __dep: Dependency;
   __litheName: string | null = null;
@@ -220,6 +228,7 @@ export class SignalImpl<T> extends Dependency implements Signal<T> {
       }
     }
     this._value = val;
+    this._equals = options.equals === false ? false : (options.equals as any) || Object.is;
     this.__dep = this;
     this.__litheName = name || null;
 
@@ -245,8 +254,7 @@ export class SignalImpl<T> extends Dependency implements Signal<T> {
 
   set value(next: T | ((prev: T) => T)) {
     const resolved = typeof next === 'function' ? (next as any)(this._value) : next;
-    if (this._value === resolved) return;
-    if (this._value !== this._value && resolved !== resolved) return;
+    if (this._equals && this._equals(this._value, resolved)) return;
     const previous = this._value;
     this._value = resolved;
     if (globalThis.__LITHE_REACTIVE_DEBUG_HOOK__) {
@@ -292,6 +300,7 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
   _depVersions: number[] = [];
   _owner: ReturnType<typeof getOwner>;
   _disposed = false;
+  _equals: false | ((previous: T, next: T) => boolean);
   __litheSignal = true;
   __computed = true;
   __dep: Dependency;
@@ -302,6 +311,7 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
   constructor(fn: () => T, options: SignalOptions = {}) {
     super(options.name || '', 'computed');
     this._fn = fn;
+    this._equals = options.equals === false ? false : (options.equals as any) || Object.is;
     this.__dep = this;
     this._owner = getOwner();
     if (this._owner) {
@@ -310,6 +320,7 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
   }
 
   addDependency(dep: Dependency) {
+    if (this._dep1 === dep || this._deps.indexOf(dep) !== -1) return;
     if (!this._dep1) {
       this._dep1 = dep;
       this._dep1Version = dep.version;
@@ -368,7 +379,7 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
       activeObserver = null;
       try {
         const nextVal = this._owner ? withOwner(this._owner, this._fn) : this._fn();
-        if (!Object.is(this._value, nextVal)) {
+        if (!this._equals || !this._equals(this._value, nextVal)) {
           this._value = nextVal;
           this.version++;
         }
@@ -388,7 +399,7 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     activeObserver = this;
     try {
       const nextVal = this._owner ? withOwner(this._owner, this._fn) : this._fn();
-      if (!Object.is(this._value, nextVal)) {
+      if (!this._equals || !this._equals(this._value, nextVal)) {
         this._value = nextVal;
         this.version++;
       }
@@ -488,6 +499,14 @@ function getDep(target: object, key: PropertyKey): Dependency {
   return dep;
 }
 
+function peekDep(target: object, key: PropertyKey): Dependency | undefined {
+  return depsByTarget.get(target)?.get(key);
+}
+
+function notifyDep(target: object, key: PropertyKey): void {
+  peekDep(target, key)?.notify();
+}
+
 export function state<T>(target: T): T {
   if (target === null || typeof target !== 'object') {
     return signal(target) as unknown as T;
@@ -524,9 +543,9 @@ export function state<T>(target: T): T {
             const prev = obj.get(k);
             obj.set(k, v);
             if (!had || !Object.is(prev, v)) {
-              getDep(obj, k).notify();
-              getDep(obj, 'size').notify();
-              getDep(obj, Symbol.for('iterate')).notify();
+              notifyDep(obj, k);
+              notifyDep(obj, 'size');
+              notifyDep(obj, Symbol.for('iterate'));
             }
             return receiver;
           };
@@ -536,9 +555,9 @@ export function state<T>(target: T): T {
             const had = obj.has(k);
             const ok = obj.delete(k);
             if (had && ok) {
-              getDep(obj, k).notify();
-              getDep(obj, 'size').notify();
-              getDep(obj, Symbol.for('iterate')).notify();
+              notifyDep(obj, k);
+              notifyDep(obj, 'size');
+              notifyDep(obj, Symbol.for('iterate'));
             }
             return ok;
           };
@@ -548,9 +567,9 @@ export function state<T>(target: T): T {
             if (obj.size > 0) {
               const keys = Array.from(obj.keys());
               obj.clear();
-              for (const k of keys) getDep(obj, k).notify();
-              getDep(obj, 'size').notify();
-              getDep(obj, Symbol.for('iterate')).notify();
+              for (const k of keys) notifyDep(obj, k);
+              notifyDep(obj, 'size');
+              notifyDep(obj, Symbol.for('iterate'));
             }
           };
         }
@@ -588,9 +607,9 @@ export function state<T>(target: T): T {
             const had = obj.has(v);
             obj.add(v);
             if (!had) {
-              getDep(obj, v).notify();
-              getDep(obj, 'size').notify();
-              getDep(obj, Symbol.for('iterate')).notify();
+              notifyDep(obj, v);
+              notifyDep(obj, 'size');
+              notifyDep(obj, Symbol.for('iterate'));
             }
             return receiver;
           };
@@ -600,9 +619,9 @@ export function state<T>(target: T): T {
             const had = obj.has(v);
             const ok = obj.delete(v);
             if (had && ok) {
-              getDep(obj, v).notify();
-              getDep(obj, 'size').notify();
-              getDep(obj, Symbol.for('iterate')).notify();
+              notifyDep(obj, v);
+              notifyDep(obj, 'size');
+              notifyDep(obj, Symbol.for('iterate'));
             }
             return ok;
           };
@@ -612,9 +631,9 @@ export function state<T>(target: T): T {
             if (obj.size > 0) {
               const values = Array.from(obj.values());
               obj.clear();
-              for (const v of values) getDep(obj, v).notify();
-              getDep(obj, 'size').notify();
-              getDep(obj, Symbol.for('iterate')).notify();
+              for (const v of values) notifyDep(obj, v);
+              notifyDep(obj, 'size');
+              notifyDep(obj, Symbol.for('iterate'));
             }
           };
         }
@@ -644,7 +663,7 @@ export function state<T>(target: T): T {
         const previous = Reflect.get(obj, key);
         const ok = Reflect.set(obj, key, value, obj);
         if (!Object.is(previous, value)) {
-          getDep(obj, key).notify();
+          notifyDep(obj, key);
         }
         return ok;
       }
@@ -667,18 +686,18 @@ export function state<T>(target: T): T {
       const previous = (obj as any)[key];
       if (previous === unwrapped) return true;
       (obj as any)[key] = unwrapped;
-      getDep(obj, key).notify();
-      if (Array.isArray(obj) && key !== 'length') getDep(obj, 'length').notify();
-      getDep(obj, Symbol.for('iterate')).notify();
+      notifyDep(obj, key);
+      if (Array.isArray(obj) && key !== 'length') notifyDep(obj, 'length');
+      notifyDep(obj, Symbol.for('iterate'));
       return true;
     },
     deleteProperty(obj, key) {
       const had = key in obj;
       const ok = Reflect.deleteProperty(obj, key);
       if (had && ok) {
-        getDep(obj, key).notify();
-        getDep(obj, Symbol.for('iterate')).notify();
-        if (Array.isArray(obj)) getDep(obj, 'length').notify();
+        notifyDep(obj, key);
+        notifyDep(obj, Symbol.for('iterate'));
+        if (Array.isArray(obj)) notifyDep(obj, 'length');
       }
       return ok;
     },

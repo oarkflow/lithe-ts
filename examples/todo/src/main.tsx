@@ -1,17 +1,18 @@
 import { mount } from 'lithe/dom';
-import { createRouter, group, Link } from 'lithe/router';
+import { createRouter, group, lazyRoute, Link } from 'lithe/router';
 import { createI18n } from 'lithe/i18n';
 import { defineTheme } from 'lithe/style';
 import { ThemeContext, useTheme } from './context/ThemeContext.tsx';
 import { ThemeToggle } from './components/ThemeToggle.tsx';
-import { Home } from './views/Home.tsx';
-import { ProjectWorkspaces } from './views/ProjectWorkspaces.tsx';
-import { RemoteSync } from './views/RemoteSync.tsx';
-import { Stats } from './views/Stats.tsx';
-import { DevTools } from './views/DevTools.tsx';
-import { UniversalState } from './views/UniversalState.tsx';
-import { TailwindShowcase } from './views/TailwindShowcase.tsx';
-import { About } from './views/About.tsx';
+
+const Home = lazyRoute(() => import('./views/Home.tsx'), { exportName: 'Home' });
+const ProjectWorkspaces = lazyRoute(() => import('./views/ProjectWorkspaces.tsx'), { exportName: 'ProjectWorkspaces' });
+const RemoteSync = lazyRoute(() => import('./views/RemoteSync.tsx'), { exportName: 'RemoteSync' });
+const Stats = lazyRoute(() => import('./views/Stats.tsx'), { exportName: 'Stats' });
+const DevTools = lazyRoute(() => import('./views/DevTools.tsx'), { exportName: 'DevTools' });
+const UniversalState = lazyRoute(() => import('./views/UniversalState.tsx'), { exportName: 'UniversalState' });
+const TailwindShowcase = lazyRoute(() => import('./views/TailwindShowcase.tsx'), { exportName: 'TailwindShowcase' });
+const About = lazyRoute(() => import('./views/About.tsx'), { exportName: 'About' });
 
 defineTheme({
 	color: { accent: '#6f5cff', background: '#0f1117' },

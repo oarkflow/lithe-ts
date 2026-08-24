@@ -70,6 +70,7 @@ function setStyle(el: any, value: any, previous: any = {}) {
 function setClass(el: any, value: any) {
   if (typeof value === 'string') {
     el.className = value;
+    el.setAttribute?.('class', value);
     return;
   }
   const classValue = Array.isArray(value)
@@ -78,6 +79,7 @@ function setClass(el: any, value: any) {
     ? Object.entries(value).filter(([, v]) => v).map(([k]) => k).join(' ')
     : '';
   el.className = classValue;
+  el.setAttribute?.('class', classValue);
 }
 
 function safeURL(value: any, key: string) {
@@ -189,20 +191,19 @@ export function __mountChild(parent: any, child: any, before: any, options: any)
     parent.insertBefore(end, before);
     let nodes: any[] = [];
     let scope: any = null;
-    const dispose = effect((cleanup) => {
+    const dispose = effect(() => {
       const value = resolveValue(child);
+      if ((typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') && nodes.length === 1 && nodes[0].nodeType === 3) {
+        const text = String(value);
+        if (nodes[0].data !== text) nodes[0].data = text;
+        return;
+      }
       scope?.dispose();
       for (let i = 0; i < nodes.length; i++) nodes[i].remove();
       const frag = document.createDocumentFragment();
       scope = createScope(() => __mountAny(frag, value, null, options));
       nodes = scope.value.nodes;
       parent.insertBefore(frag, end);
-      cleanup(() => {
-        scope?.dispose();
-        scope = null;
-        for (let i = 0; i < nodes.length; i++) nodes[i].remove();
-        nodes = [];
-      });
     }, { sync: true });
     onCleanup(() => {
       dispose();

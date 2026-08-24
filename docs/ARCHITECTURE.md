@@ -113,7 +113,7 @@ Web Components are native. React/Vue/Svelte adapters are dependency-injected bri
 
 The included Todo application deliberately keeps a strict budget:
 
-- production payload: <= 50,000 raw bytes
-- JavaScript gzip: <= 18,000 bytes
+- initial JavaScript gzip: <= 18,000 bytes
+- production payload: <= 150,000 raw bytes
 
-Advanced features are split into optional modules so adding framework capabilities does not force them into a simple app.
+Advanced features are split into optional modules and lazy route chunks so adding framework capabilities does not force them into the startup path. The build manifest records both total JavaScript and initial static JavaScript, and `lithe analyze` prints the initial JavaScript size explicitly.

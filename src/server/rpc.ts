@@ -43,6 +43,10 @@ export function server(...args) {
   return callable;
 }
 
+export function defineAction(handlerOrOptions) {
+  return server(handlerOrOptions);
+}
+
 export async function handleServerFunction(request, context = {}) {
   const traceId=correlationFromHeaders(request.headers)||context.traceId||null;context={...context,traceId};correlationEvent('rpc:server:start',{url:request.url},traceId);
   const url = new URL(request.url);

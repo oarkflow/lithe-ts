@@ -10,6 +10,14 @@ export interface RouterOptions { routes?: RouteDefinition[]; initialURL?: string
 export type RouteTo = string | { to: string };
 export interface NavigateOptions { replace?: boolean; state?: unknown; modal?: boolean; preserveBackground?: boolean; transition?: boolean; scroll?: boolean; restore?: boolean; traceId?: string | null }
 export interface LinkProps { to: string; children?: any[]; router?: any; prefetch?: boolean | 'auto' | 'visible' | 'idle'; ref?: (element: HTMLAnchorElement | null) => void;[key: string]: any }
+export type Loader<TData = unknown, TContext extends RouterContext = RouterContext> = (context: TContext) => TData | Promise<TData>;
+export type TypedRouteDefinition<TParams extends Record<string, string> = Record<string, string>, TSearch = Record<string, unknown>, TData = unknown> = Omit<RouteDefinition, 'load' | 'preload' | 'component' | 'children'> & {
+	component?: (props: RouterContext & { params: TParams; search: TSearch; data?: TData; children?: any; outlet?: any; router?: any }) => any;
+	load?: Loader<TData, RouterContext & { params: TParams; search: TSearch }>;
+	preload?: Loader<unknown, RouterContext & { params: TParams; search: TSearch }>;
+	children?: RouteDefinition[];
+};
+export interface LazyRouteOptions { exportName?: string; fallback?: any; onError?: (error: unknown) => void }
 
 
 let traceSeq = 0;
@@ -54,6 +62,23 @@ function memoryLimit(options: RouterOptions): number {
 	if (options.cacheEntries) return options.cacheEntries;
 	const memory = typeof navigator !== 'undefined' ? navigator.deviceMemory : undefined;
 	if (memory && memory <= 2) return 2; if (memory && memory <= 4) return 4; if (memory && memory >= 8) return 12; return 6;
+}
+
+export function lazyRoute<TProps = any>(loader: () => Promise<any>, options: LazyRouteOptions = {}) {
+	let component: any = null, promise: Promise<any> | null = null, error: unknown = null;
+	const tick = signal(0);
+	const load = () => promise ||= Promise.resolve(loader()).then(mod => {
+		component = options.exportName ? mod?.[options.exportName] : mod?.default || mod;
+		if (!component && mod && typeof mod === 'object') component = Object.values(mod).find(x => typeof x === 'function');
+		if (typeof component !== 'function') throw new TypeError('lazyRoute() loader must resolve to a component function.');
+		error = null; tick.value++; return component;
+	}).catch(err => { promise = null; error = err; options.onError?.(err); tick.value++; throw err; });
+	function LazyRoute(props: TProps) {
+		if (!component && !promise) load().catch(() => { });
+		return dynamic(() => { tick.value; if (component) return h(component, props); if (error) return options.fallback ?? null; return typeof options.fallback === 'function' ? options.fallback() : options.fallback ?? null; });
+	}
+	(LazyRoute as any).preload = load;
+	return LazyRoute;
 }
 
 export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] = {}, { ...legacyOptions }: RouterOptions = {} as RouterOptions) {
@@ -104,7 +129,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
 	async function prefetch(to: RouteTo): Promise<unknown> {
 		const next = new URL(typeof to === 'string' ? to : to.to, currentURL.value); if (prefetchCache.has(next.href)) return prefetchCache.get(next.href);
 		const target = resolve(next);
-		const promise = (async () => { for (const r of target.chain) await r.preload?.({ params: target.params, query: target.query, search: target.search, url: target.url, route: r, target, traceId: newCorrelationId() }); return loadResolved(target, newCorrelationId()); })();
+		const promise = (async () => { for (const r of target.chain) { await (r.component as any)?.preload?.(); for (const component of Object.values(r.outlets || {})) await (component as any)?.preload?.(); await r.preload?.({ params: target.params, query: target.query, search: target.search, url: target.url, route: r, target, traceId: newCorrelationId() }); } return loadResolved(target, newCorrelationId()); })();
 		prefetchCache.set(next.href, promise); try { return await promise; } catch (error) { prefetchCache.delete(next.href); throw error; }
 	}
 
@@ -156,5 +181,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
 }
 
 export function prefetchPolicy(): boolean { if (typeof navigator === 'undefined') return true; const c = navigator.connection; if (c?.saveData) return false; return !['slow-2g', '2g'].includes(c?.effectiveType); }
+export function defineRoutes<T extends readonly RouteDefinition[]>(routes: T): T { return routes; }
+export function defineLoader<TData = unknown, TContext extends RouterContext = RouterContext>(loader: Loader<TData, TContext>): Loader<TData, TContext> { return loader; }
 export function group(children: RouteDefinition[], options: Omit<RouteDefinition, 'children' | 'path'> & { path?: string } = {}): RouteDefinition { return { ...options, path: options.path ?? '', children }; }
 export function Link(props: LinkProps): any { const { to, children, router, prefetch = 'auto', ref: userRef, ...rest } = props; let observer, idle; const warm = () => { if (prefetch !== false && router?.prefetch && prefetchPolicy()) router.prefetch(to).catch(() => { }); }; const ref = el => { userRef?.(el); observer?.disconnect(); observer = null; if (idle) { (globalThis.cancelIdleCallback || clearTimeout)(idle); idle = null; } if (!el || prefetch === false) return; if ((prefetch === 'auto' || prefetch === 'visible') && typeof IntersectionObserver !== 'undefined' && prefetchPolicy()) { observer = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) { observer.disconnect(); observer = null; warm(); } }, { rootMargin: '200px' }); observer.observe(el); } if (prefetch === 'idle' && prefetchPolicy()) { const run = () => warm(); idle = (globalThis.requestIdleCallback || ((fn) => setTimeout(fn, 120)))(run, { timeout: 1500 }); } }; return h('a', { ...rest, ref, href: to, 'data-lithe-link': '', onPointerenter: warm, onFocus: warm, onTouchstart: warm }, ...(children || [])); }

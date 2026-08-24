@@ -80,7 +80,7 @@ function applyNonOverlappingEdits(code: string, rawEdits: Array<{ start: number;
 
 export function treeShakeModule(code: string, usedExports = new Set(['*']), options: { entry?: boolean } = {}): { code: string; removed: string[] } {
 	const removed: string[] = [];
-	const isAllUsed = usedExports.has('*') || Boolean(options.entry);
+	const isAllUsed = usedExports.has('*');
 	const used = (name: string) => isAllUsed || usedExports.has(name) || usedExports.has('default');
 
 	let current = code;

@@ -527,6 +527,23 @@ export async function runComprehensiveBenchmarks() {
 			}
 		}, 1);
 
+		const useLithePathStore = createStore({
+			user: {
+				profile: {
+					settings: {
+						theme: 'dark',
+						notifications: { email: true, push: false }
+					}
+				}
+			}
+		});
+		const themePath = ['user', 'profile', 'settings', 'theme'] as const;
+		const resLithePath = measure('Lithe Deep store.setPath', () => {
+			for (let i = 0; i < 10000; i++) {
+				useLithePathStore.setPath(themePath, i % 2 === 0 ? 'dark' : 'light');
+			}
+		}, 1);
+
 		interface ZustandDeep {
 			user: { profile: { settings: { theme: string; notifications: { email: boolean; push: boolean } } } };
 			setTheme: (theme: string) => void;
@@ -561,9 +578,10 @@ export async function runComprehensiveBenchmarks() {
 			}
 		}, 1);
 
-		results.state['Deep Patching (10k)'] = { Lithe: resLithe.elapsedMs, Zustand: resZustand.elapsedMs };
+		results.state['Deep Patching (10k)'] = { 'Lithe patch': resLithe.elapsedMs, 'Lithe setPath': resLithePath.elapsedMs, Zustand: resZustand.elapsedMs };
 		console.log(`\n  3.2 Deep Hierarchical Patching (10,000 nested operations):`);
 		console.log(`      ⚡ Lithe store.patch:  ${resLithe.elapsedMs.toFixed(2).padStart(8)} ms (zero boilerplate deep merge)`);
+		console.log(`      ⚡ Lithe store.setPath:${resLithePath.elapsedMs.toFixed(2).padStart(8)} ms (pre-path optimized setter)`);
 		console.log(`      🐻 Zustand spread:     ${resZustand.elapsedMs.toFixed(2).padStart(8)} ms (multi-level manual spread)`);
 	}
 

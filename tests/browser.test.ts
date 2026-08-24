@@ -11,7 +11,7 @@ async function waitJSON(url, timeout = 6000) { const end = Date.now() + timeout;
 function connectCDP(url) { const ws = new WebSocket(url), pending = new Map(), listeners = new Map(); let seq = 0; const ready = new Promise((resolve, reject) => { ws.addEventListener('open', resolve, { once: true }); ws.addEventListener('error', reject, { once: true }); }); ws.addEventListener('message', e => { const msg = JSON.parse(e.data); if (msg.id) { const p = pending.get(msg.id); if (p) { pending.delete(msg.id); msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result); } } else if (msg.method) { for (const fn of listeners.get(msg.method) || []) fn(msg.params); } }); return { ready, ws, send(method, params = {}) { const id = ++seq; return new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params })); }); }, once(method, timeout = 7000) { return new Promise((resolve, reject) => { const list = listeners.get(method) || [], fn = p => { clearTimeout(timer); listeners.set(method, list.filter(x => x !== fn)); resolve(p); }; list.push(fn); listeners.set(method, list); const timer = setTimeout(() => { listeners.set(method, list.filter(x => x !== fn)); reject(new Error(`Timed out for ${method}`)); }, timeout); }); }, close() { ws.close(); } }; }
 
 test('dev server bootstraps HMR before application modules', async t => {
-	const dev = await devServer(new URL('../examples/todo', import.meta.url).pathname, { port: 0 }); t.after(() => dev.server.close());
+	let dev; try { dev = await devServer(new URL('../examples/todo', import.meta.url).pathname, { port: 0 }); } catch (error) { if (error.code === 'EPERM') { t.skip('Local HTTP is blocked by this environment'); return; } throw error; } t.after(() => dev.server.close());
 	const html = await (await fetch(dev.url)).text();
 	assert.ok(html.indexOf('/__lithe_hmr_client.js') < html.indexOf('/src/main.tsx'));
 	const source = await (await fetch(`${dev.url}/src/main.tsx`)).text();
@@ -19,14 +19,15 @@ test('dev server bootstraps HMR before application modules', async t => {
 });
 
 test('dev server increments when the requested port is occupied', async t => {
-	const occupied = http.createServer(); await new Promise(resolve => occupied.listen(0, '127.0.0.1', resolve));
-	const port = occupied.address().port, dev = await devServer(new URL('../examples/todo', import.meta.url).pathname, { host: '127.0.0.1', port });
+	const occupied = http.createServer(); try { await new Promise((resolve, reject) => { occupied.once('error', reject); occupied.listen(0, '127.0.0.1', resolve); }); } catch (error) { if (error.code === 'EPERM') { t.skip('Local HTTP is blocked by this environment'); return; } throw error; }
+	const port = occupied.address().port;
+	let dev; try { dev = await devServer(new URL('../examples/todo', import.meta.url).pathname, { host: '127.0.0.1', port }); } catch (error) { if (error.code === 'EPERM') { t.skip('Local HTTP is blocked by this environment'); occupied.close(); return; } throw error; }
 	t.after(() => { dev.server.close(); occupied.close(); });
 	assert.equal(new URL(dev.url).port, String(port + 1));
 });
 
 test('real Chromium loads compiled example and executes browser runtime', async t => {
-	const dev = await devServer(new URL('../examples/todo', import.meta.url).pathname, { host: '0.0.0.0', port: 0, hmr: false }); t.after(() => dev.server.close());
+	let dev; try { dev = await devServer(new URL('../examples/todo', import.meta.url).pathname, { host: '0.0.0.0', port: 0, hmr: false }); } catch (error) { if (error.code === 'EPERM') { t.skip('Local HTTP is blocked by this environment'); return; } throw error; } t.after(() => dev.server.close());
 	const port = dev.server.address().port;
 	const privateIP = Object.values(os.networkInterfaces()).flat().find(x => x && x.family === 'IPv4' && !x.internal)?.address;
 	const candidates = [dev.url, privateIP ? `http://${privateIP}:${port}` : null].filter(Boolean);

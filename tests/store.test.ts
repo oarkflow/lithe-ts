@@ -379,4 +379,32 @@ test('store supports spreading, deep patching, in-place mutations and produce()'
 	assert.deepEqual(next, { count: 6, list: ['a', 'b'] });
 });
 
+test('store.patch ignores prototype pollution keys', () => {
+	const useStore = createStore({ user: { name: 'Alice' }, ok: true });
+	const payload = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}},"user":{"prototype":{"polluted":true},"name":"Bob"}}');
 
+	useStore.patch(payload);
+
+	assert.equal(useStore.getState().user.name, 'Bob');
+	assert.equal(({} as any).polluted, undefined);
+	assert.equal((useStore.getState() as any).polluted, undefined);
+	assert.equal((useStore.getState().user as any).polluted, undefined);
+});
+
+test('store.setPath updates nested leaves and rejects unsafe keys', () => {
+	const useStore = createStore({ user: { profile: { theme: 'dark' } } });
+	let seen = '';
+
+	createScope(() => {
+		effect(() => {
+			seen = useStore(s => s.user.profile.theme);
+		}, { sync: true });
+	});
+
+	useStore.setPath(['user', 'profile', 'theme'], 'light');
+	assert.equal(seen, 'light');
+	assert.equal(useStore.getState().user.profile.theme, 'light');
+
+	useStore.setPath(['__proto__', 'polluted'], true);
+	assert.equal(({} as any).polluted, undefined);
+});

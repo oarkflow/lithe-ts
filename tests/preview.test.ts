@@ -6,7 +6,7 @@ import path from 'node:path';
 import { buildProject } from '../tools/build.ts';
 import { previewProject } from '../tools/preview.ts';
 
-test('preview server serves built dist with correct MIME types, versioned cache headers and SPA routing', async () => {
+test('preview server serves built dist with correct MIME types, versioned cache headers and SPA routing', async t => {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lithe-preview-'));
 	try {
 		await fs.mkdir(path.join(root, 'src'), { recursive: true });
@@ -17,7 +17,9 @@ test('preview server serves built dist with correct MIME types, versioned cache 
 
 		await buildProject(root, { bundle: 'single', assetVersion: true, sourceMaps: false, enforceBudgets: false });
 
-		const { server, url } = await previewProject(root, { port: 0 });
+		let preview;
+		try { preview = await previewProject(root, { port: 0 }); } catch (error) { if (error.code === 'EPERM') { t.skip('Local HTTP is blocked by this environment'); return; } throw error; }
+		const { server, url } = preview;
 		try {
 			const htmlRes = await fetch(url + '/');
 			assert.equal(htmlRes.status, 200);

@@ -115,3 +115,19 @@ test('production single bundle mode emits one static app entry', async () => {
 		assert.match(await fs.readFile(path.join(out, 'app.css'), 'utf8'), /\.ready\{color:red\}/); await assert.rejects(fs.access(path.join(out, 'lithe.css')));
 	} finally { await fs.rm(root, { recursive: true, force: true }); }
 });
+
+test('chunks mode tracks initial JavaScript budget separately from lazy imports', async () => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lithe-initial-budget-'));
+	try {
+		await fs.mkdir(path.join(root, 'src'), { recursive: true }); await fs.mkdir(path.join(root, 'public'), { recursive: true });
+		await fs.writeFile(path.join(root, 'public', 'index.html'), `<div id="app"></div><script type="module" src="/src/main.jsx"></script>`);
+		await fs.writeFile(path.join(root, 'lithe.config.json'), JSON.stringify({ bundle: 'chunks', performance: { initialJsGzip: 20000, totalBytes: 1000000 } }));
+		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@lithe/dom'; mount(document.getElementById('app'), <main>{()=>import('./heavy.js').then(m=>m.label)}</main>);`);
+		await fs.writeFile(path.join(root, 'src', 'heavy.js'), `export const label = ${JSON.stringify('x'.repeat(40000))};`);
+		const { manifest } = await buildProject(root, { sourceMaps: false });
+		assert.ok(manifest.chunks.initial.includes('src/main.js'));
+		assert.ok(!manifest.chunks.initial.includes('src/heavy.js'));
+		assert.ok(manifest.chunks.reachable.includes('src/heavy.js'));
+		assert.ok(manifest.initialJSGzip < manifest.jsGzip);
+	} finally { await fs.rm(root, { recursive: true, force: true }); }
+});

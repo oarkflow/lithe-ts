@@ -1,6 +1,10 @@
 {
 	"sourceMaps": false,
 	"minify": true,
-	"bundle": "single",
-	"assetVersion": true
+	"bundle": "chunks",
+	"assetVersion": true,
+	"performance": {
+		"initialJsGzip": 18000,
+		"totalBytes": 150000
+	}
 }

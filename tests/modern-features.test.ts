@@ -22,6 +22,7 @@ import { createScope } from '../src/core/owner.ts';
 import { installDelegatedEvents, setDelegatedEvent } from '../src/dom/events.ts';
 import { __setAttribute } from '../src/dom/dom.ts';
 import { QueryClient, createStoragePersister, mutation } from '../src/data/query.ts';
+import { checkProject } from '../tools/check.ts';
 import { createMemoryStorage } from '../src/offline/storage.ts';
 import { imageMetadata } from '../tools/image.ts';
 import { generateTypes } from '../tools/types.ts';
@@ -76,3 +77,15 @@ test('devtools exposes component metadata and debugger snapshots', () => { const
 test('delegated events expose the matched element as currentTarget', () => { const listeners = new Map(); const root = { parentNode: null, addEventListener(type, fn) { listeners.set(type, fn); }, removeEventListener() { } }; const input = { parentNode: root }; let current; installDelegatedEvents(root, ['change']); setDelegatedEvent(input, 'onChange', event => { current = event.currentTarget; }); listeners.get('change')({ target: input, cancelBubble: false }); assert.equal(current, input); });
 
 test('DOM attributes follow HTML names and reject unsafe URLs', () => { const attrs = new Map(); const element = { setAttribute(key, value) { attrs.set(key, value); }, removeAttribute(key) { attrs.delete(key); } }; __setAttribute(element, 'className', 'active'); __setAttribute(element, 'htmlFor', 'title'); __setAttribute(element, 'href', 'javascript:alert(1)'); assert.equal(attrs.get('class'), 'active'); assert.equal(attrs.get('for'), 'title'); assert.equal(attrs.has('href'), false); });
+
+test('framework security check rejects javascript anchors and warns about target blank', async () => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lithe-security-'));
+	try {
+		await fs.mkdir(path.join(root, 'src'), { recursive: true });
+		await fs.writeFile(path.join(root, 'src', 'main.tsx'), `export const view=<><a href="javascript:alert(1)">Bad</a><a href="https://example.com" target="_blank">Blank</a></>;`);
+		const result = await checkProject(root);
+		assert.equal(result.ok, false);
+		assert.ok(result.issues.some(x => x.code === 'SEC003'));
+		assert.ok(result.issues.some(x => x.code === 'SEC002'));
+	} finally { await fs.rm(root, { recursive: true, force: true }); }
+});

@@ -4,7 +4,21 @@ import { h } from '../dom/vnode.ts';
 import { createNetworkState } from '../offline/offline.ts';
 import { createDevtools } from '../devtools/devtools.ts';
 
-export function defineApp(config) { return Object.freeze({...config}); }
+export interface AppConvention {
+  root?: string | Element | DocumentFragment | null;
+  component?: any;
+  router?: any;
+  routes?: any[];
+  server?: Record<string, unknown>;
+  head?: unknown;
+  errorBoundary?: any;
+  adapters?: Record<string, unknown>;
+  notFound?: any;
+  mount?: Record<string, unknown>;
+  devtools?: boolean;
+}
+
+export function defineApp<T extends AppConvention>(config: T): Readonly<T> { return Object.freeze({...config}); }
 
 export function startApp(config) {
   const router=config.router || (config.routes ? createRouter({routes:config.routes,notFound:config.notFound}) : null);

@@ -120,6 +120,7 @@ lithe analyze <project>
 lithe create <directory>
 lithe prerender <project> [--out=dist]
 lithe types <project> [--out=lithe.generated.d.ts]
+lithe doctor <project> [--build=false]
 lithe image <file>
 ```
 
@@ -139,7 +140,7 @@ Lithe intentionally emits browser-native ESM rather than forcing all code into a
 8. dead-branch elimination
 9. dependency-free minification
 10. source-map generation
-11. production/debug budget enforcement
+11. production/debug/startup budget enforcement
 
 Only reachable Lithe runtime modules are copied into `dist/__lithe`.
 
@@ -208,4 +209,4 @@ const css = await compileTailwind([sourceCode]);
 const plugin = litheTailwindPlugin();
 ```
 
-See [`Tasks.md`](./Tasks.md) for the completed engineering ledger and [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for internals.
+See [`Tasks.md`](./Tasks.md) for the completed engineering ledger, [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for internals, and [`docs/TRUST_DX.md`](./docs/TRUST_DX.md) for typed helpers, debugging surfaces, `lithe doctor`, and benchmark-proof rules.

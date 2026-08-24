@@ -2,6 +2,7 @@ export type Priority = 'sync' | 'userBlocking' | 'normal' | 'transition' | 'back
 
 export interface SignalOptions {
   name?: string;
+  equals?: false | ((previous: unknown, next: unknown) => boolean);
 }
 
 export interface ObserverOptions {

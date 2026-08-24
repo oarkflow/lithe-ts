@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "bench": "node --experimental-strip-types framework-comparison.ts"
+    "bench": "node --experimental-strip-types framework-comparison.ts",
+    "bench:browser": "node --experimental-strip-types real-browser.ts"
   },
   "dependencies": {
     "react": "^19.0.0",

@@ -314,6 +314,23 @@ export function collectTypeEnvironment(sources: string[]) {
 function issue(source: string, index: number, code: string, message: string, file: string) {
   return { severity: 'error' as const, code, file, line: lineOf(source, index), column: index - (source.lastIndexOf('\n', index - 1) + 1), message };
 }
+function warning(source: string, index: number, code: string, message: string, file: string) {
+  return { severity: 'warning' as const, code, file, line: lineOf(source, index), column: index - (source.lastIndexOf('\n', index - 1) + 1), message };
+}
+function unsupportedTypeDiagnostics(source: string, file: string) {
+  const issues: any[] = [];
+  const patterns = [
+    { re: /\btype\s+[A-Za-z_$][\w$]*(?:\s*<[^>]+>)?\s*=\s*[^;\n]+\bextends\b[^;\n]+\?[^;\n]+:/g, code: 'TS_UNSUPPORTED_CONDITIONAL', message: 'Conditional types are syntax-valid, but Lithe semantic checking does not fully model them yet.' },
+    { re: /\binfer\s+[A-Za-z_$][\w$]*/g, code: 'TS_UNSUPPORTED_INFER', message: 'infer types are syntax-valid, but Lithe semantic checking does not fully model them yet.' },
+    { re: /\bkeyof\s+[A-Za-z_$][\w$]*/g, code: 'TS_UNSUPPORTED_KEYOF', message: 'keyof types are syntax-valid, but Lithe semantic checking treats them as named types.' }
+  ];
+  for (const pattern of patterns) {
+    pattern.re.lastIndex = 0;
+    const match = pattern.re.exec(source);
+    if (match) issues.push(warning(source, match.index, pattern.code, pattern.message, file));
+  }
+  return issues;
+}
 
 function widenLiteralType(t: any): any {
   if (!t) return t;
@@ -329,6 +346,7 @@ function widenLiteralType(t: any): any {
 
 export function semanticTypecheck(source: string, options: { filename?: string; env?: Map<string, any> } = {}) {
   const file = options.filename || '<module>', env = options.env || collectTypeEnvironment([source]), vars = new Map<string, any>(), functions = new Map<string, any>(), issues: any[] = [];
+  issues.push(...unsupportedTypeDiagnostics(source, file));
   
   for (const m of source.matchAll(/\b(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*(?:<[^>{}()]*>)?\s*\(([^)]*)\)\s*(?::\s*([^\{=>\n]+))?\s*\{/g)) {
     const params: any[] = [];
@@ -397,7 +415,7 @@ export function semanticTypecheck(source: string, options: { filename?: string; 
     if (!isTypeAssignable(actual, expected, env)) issues.push(issue(source, m.index, 'TS_REASSIGN', `Cannot assign ${typeText(actual)} to ${name} (${typeText(expected)}).`, file));
   }
 
-  return { ok: issues.length === 0, issues, environment: env, variables: vars, functions };
+  return { ok: !issues.some(x => x.severity === 'error'), issues, environment: env, variables: vars, functions };
 }
 
 export { typeText as formatType };

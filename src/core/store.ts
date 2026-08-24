@@ -18,6 +18,7 @@ export interface StoreApi<T> {
 	getState: () => T;
 	setState: (action: SetStateAction<T>, actionName?: string) => void;
 	patch: (partialOrUpdater: Partial<T> | ((state: T) => Partial<T> | void), actionName?: string) => void;
+	setPath: (path: readonly PropertyKey[], value: unknown, actionName?: string) => void;
 	mutate: (producer: (draft: T) => void, actionName?: string) => void;
 	subscribe: (listener: Listener<T>) => () => void;
 	select: <U>(selector: (state: T) => U, equalityFn?: (a: U, b: U) => boolean) => ReadonlySignal<U>;
@@ -78,22 +79,115 @@ function clone<T>(val: T): T {
 	}
 }
 
-function deepMerge(target: any, source: any): any {
-	if (!source || typeof source !== 'object') return source;
-	if (Array.isArray(source)) return source;
-	for (const key in source) {
-		const srcVal = source[key];
-		if (srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) && !(srcVal instanceof Date) && !(srcVal instanceof RegExp) && !(srcVal instanceof Map) && !(srcVal instanceof Set)) {
-			let tVal = target[key];
-			if (!tVal || typeof tVal !== 'object') {
-				target[key] = tVal = {};
+function isUnsafeObjectKey(key: string): boolean {
+	return key === '__proto__' || key === 'constructor' || key === 'prototype';
+}
+
+function isMergeObject(value: any): boolean {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+	if (value instanceof Date || value instanceof RegExp || value instanceof Map || value instanceof Set) return false;
+	return true;
+}
+
+type PatchPlan = Array<string[]>;
+const patchPlanCache = new Map<string, PatchPlan>();
+
+function patchShapeKey(source: any): string {
+	let key = '';
+	const walk = (node: any) => {
+		for (const k in node) {
+			if (isUnsafeObjectKey(k)) continue;
+			key += k;
+			const value = node[k];
+			if (isMergeObject(value)) {
+				key += '{';
+				walk(value);
+				key += '}';
+			} else {
+				key += ';';
 			}
-			deepMerge(tVal, srcVal);
-		} else {
-			target[key] = srcVal;
 		}
+	};
+	walk(source);
+	return key;
+}
+
+function buildPatchPlan(source: any): PatchPlan {
+	const paths: PatchPlan = [];
+	const walk = (node: any, path: string[]) => {
+		for (const k in node) {
+			if (isUnsafeObjectKey(k)) continue;
+			const value = node[k];
+			const next = path.concat(k);
+			if (isMergeObject(value)) walk(value, next);
+			else paths.push(next);
+		}
+	};
+	walk(source, []);
+	return paths;
+}
+
+function getPatchPlan(source: any): PatchPlan {
+	const key = patchShapeKey(source);
+	let plan = patchPlanCache.get(key);
+	if (!plan) {
+		plan = buildPatchPlan(source);
+		if (patchPlanCache.size > 256) patchPlanCache.clear();
+		patchPlanCache.set(key, plan);
+	}
+	return plan;
+}
+
+function applyPatchPlan(target: any, source: any, plan: PatchPlan): any {
+	for (let i = 0; i < plan.length; i++) {
+		const path = plan[i];
+		let targetNode = target;
+		let sourceNode = source;
+		for (let j = 0; j < path.length - 1; j++) {
+			const key = path[j];
+			sourceNode = sourceNode[key];
+			let nextTarget = targetNode[key];
+			if (!isMergeObject(nextTarget)) targetNode[key] = nextTarget = {};
+			targetNode = nextTarget;
+		}
+		const leaf = path[path.length - 1];
+		const value = sourceNode[leaf];
+		if (!Object.is(targetNode[leaf], value)) targetNode[leaf] = value;
 	}
 	return target;
+}
+
+function applySingleLeafPatch(target: any, source: any): boolean {
+	let targetNode = target;
+	let sourceNode = source;
+	while (isMergeObject(sourceNode)) {
+		let key = '';
+		let count = 0;
+		for (const k in sourceNode) {
+			if (isUnsafeObjectKey(k)) continue;
+			key = k;
+			count++;
+			if (count > 1) return false;
+		}
+		if (count === 0) return true;
+		const value = sourceNode[key];
+		if (isMergeObject(value)) {
+			let nextTarget = targetNode[key];
+			if (!isMergeObject(nextTarget)) targetNode[key] = nextTarget = {};
+			targetNode = nextTarget;
+			sourceNode = value;
+			continue;
+		}
+		if (!Object.is(targetNode[key], value)) targetNode[key] = value;
+		return true;
+	}
+	return false;
+}
+
+function deepMerge(target: any, source: any): any {
+	if (!isMergeObject(source)) return source;
+	if (applySingleLeafPatch(target, source)) return target;
+	return applyPatchPlan(target, source, getPatchPlan(source));
 }
 
 /**
@@ -118,9 +212,15 @@ export function createStore<T, Actions extends object = {}>(
 	const listeners = new Set<Listener<T & Actions>>();
 	let reactiveState: any = null;
 	let isScalar = false;
+	let observed = false;
+
+	const writeTarget = (): any => {
+		if (!reactiveState || observed || listeners.size > 0) return reactiveState || initialData;
+		return initialData;
+	};
 
 	const rawSetState = (action: SetStateAction<T & Actions>, actionName?: string) => {
-		const target = reactiveState || initialData;
+		const target = writeTarget();
 		const prev = listeners.size > 0 ? clone(target) : null;
 		if (isScalar) {
 			if (typeof action === 'function') {
@@ -150,7 +250,7 @@ export function createStore<T, Actions extends object = {}>(
 	};
 
 	const patch = (partialOrUpdater: Partial<T & Actions> | ((state: T & Actions) => Partial<T & Actions> | void), actionName = 'patch'): void => {
-		const target = reactiveState || initialData;
+		const target = writeTarget();
 		const prev = listeners.size > 0 ? clone(target) : null;
 		batch(() => {
 			if (isScalar) {
@@ -181,11 +281,40 @@ export function createStore<T, Actions extends object = {}>(
 		}
 	};
 
+	const setPath = (path: readonly PropertyKey[], value: unknown, actionName = 'setPath'): void => {
+		if (!path.length) return;
+		const target = writeTarget();
+		const prev = listeners.size > 0 ? clone(target) : null;
+		let node = isScalar ? target.value : target;
+		batch(() => {
+			for (let i = 0; i < path.length - 1; i++) {
+				const key = path[i];
+				if (typeof key === 'string' && isUnsafeObjectKey(key)) return;
+				let next = node[key as any];
+				if (!isMergeObject(next)) node[key as any] = next = {};
+				node = next;
+			}
+			const leaf = path[path.length - 1];
+			if (typeof leaf === 'string' && isUnsafeObjectKey(leaf)) return;
+			if (!Object.is(node[leaf as any], value)) node[leaf as any] = value;
+		});
+		if (listeners.size > 0 && reactiveState) {
+			const next = getState();
+			for (const listener of [...listeners]) {
+				try { listener(next, isScalar ? prev.value : prev); } catch (e) { console.error('[lithe:store] listener error:', e); }
+			}
+		}
+		if (actionName && (globalThis as any).__LITHE_DEVTOOLS_ACTION__) {
+			try { (globalThis as any).__LITHE_DEVTOOLS_ACTION__(actionName, getState()); } catch { }
+		}
+	};
+
 	const mutate = (producer: (draft: T & Actions) => void, actionName = 'mutate'): void => {
 		rawSetState(producer, actionName);
 	};
 
 	const getState = (): any => {
+		observed = true;
 		const curr = reactiveState || initialData;
 		return isScalar ? curr.value : curr;
 	};
@@ -194,8 +323,10 @@ export function createStore<T, Actions extends object = {}>(
 		getState,
 		setState: rawSetState,
 		patch,
+		setPath,
 		mutate,
 		subscribe: (listener: Listener<T & Actions>) => {
+			observed = true;
 			listeners.add(listener);
 			return () => listeners.delete(listener);
 		},
@@ -227,6 +358,7 @@ export function createStore<T, Actions extends object = {}>(
 	reactiveState = state<any>(initialData);
 
 	const select = <U>(selector: (state: T & Actions) => U, equalityFn?: (a: U, b: U) => boolean): ReadonlySignal<U> => {
+		observed = true;
 		return computed(() => {
 			const source = isScalar ? reactiveState.value : reactiveState;
 			return selector(source);
@@ -236,6 +368,7 @@ export function createStore<T, Actions extends object = {}>(
 	};
 
 	const subscribe = (listener: Listener<T & Actions>): () => void => {
+		observed = true;
 		listeners.add(listener);
 		return () => listeners.delete(listener);
 	};
@@ -260,6 +393,7 @@ export function createStore<T, Actions extends object = {}>(
 		getState,
 		setState: rawSetState,
 		patch,
+		setPath,
 		mutate,
 		subscribe,
 		select,
@@ -270,6 +404,7 @@ export function createStore<T, Actions extends object = {}>(
 
 	// Hook callable representation: `useStore(selector)` or `useStore()`
 	const hook: any = function <U = T & Actions>(selector?: (state: T & Actions) => U, equalityFn?: (a: U, b: U) => boolean): any {
+		observed = true;
 		if (isScalar) {
 			if (typeof selector === 'function') return selector(reactiveState.value);
 			return reactiveState.value;
@@ -284,6 +419,7 @@ export function createStore<T, Actions extends object = {}>(
 	Object.assign(hook, storeApi);
 	return new Proxy(hook, {
 		get(target, prop, receiver) {
+			if (prop !== 'setState' && prop !== 'patch' && prop !== 'setPath' && prop !== 'mutate' && prop !== 'reset' && prop !== 'destroy') observed = true;
 			if (prop in target) return Reflect.get(target, prop, receiver);
 			if (isScalar) return Reflect.get(target.state, prop, receiver);
 			if (target.state && typeof target.state === 'object') return Reflect.get(target.state, prop, receiver);
