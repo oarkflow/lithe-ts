@@ -180,6 +180,23 @@ const PREFLIGHT_CSS = `/* Tailwind CSS Preflight Base */
   border-width: 0;
   border-style: solid;
   border-color: #e5e7eb;
+  --tw-border-spacing-x: 0;
+  --tw-border-spacing-y: 0;
+  --tw-translate-x: 0;
+  --tw-translate-y: 0;
+  --tw-rotate: 0;
+  --tw-skew-x: 0;
+  --tw-skew-y: 0;
+  --tw-scale-x: 1;
+  --tw-scale-y: 1;
+  --tw-ring-inset: ;
+  --tw-ring-offset-width: 0px;
+  --tw-ring-offset-color: #fff;
+  --tw-ring-color: rgb(59 130 246 / 0.5);
+  --tw-ring-offset-shadow: 0 0 #0000;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-shadow: 0 0 #0000;
+  --tw-shadow-colored: 0 0 #0000;
 }
 html, :host {
   line-height: 1.5;
@@ -255,6 +272,10 @@ button, input:where([type='button']), input:where([type='reset']), input:where([
   -webkit-appearance: button;
   background-color: transparent;
   background-image: none;
+  outline: none;
+}
+button:focus, button:focus-visible, button:active {
+  outline: none;
 }
 :-moz-focusring {
   outline: auto;
@@ -349,21 +370,36 @@ function hexToRgb(hex: string): string | null {
 	return null;
 }
 
+function parseOpacity(opacity?: string): number | null {
+	if (!opacity) return null;
+	if (opacity.startsWith('[') && opacity.endsWith(']')) {
+		const inner = opacity.slice(1, -1).trim();
+		if (inner.endsWith('%')) {
+			return parseFloat(inner.slice(0, -1)) / 100;
+		}
+		const num = parseFloat(inner);
+		return isNaN(num) ? null : num;
+	}
+	const num = Number(opacity);
+	return isNaN(num) ? null : num / 100;
+}
+
 function resolveColor(name: string, opacity?: string): string | null {
 	if (!name) return null;
+	const alpha = parseOpacity(opacity);
+
 	if (name.startsWith('[') && name.endsWith(']')) {
 		const inner = name.slice(1, -1).replace(/_/g, ' ');
-		if (opacity) {
-			const alpha = Number(opacity) / 100;
+		if (alpha !== null) {
 			return `color-mix(in srgb, ${inner} ${alpha * 100}%, transparent)`;
 		}
 		return inner;
 	}
 	if (BASE_COLORS[name]) {
 		const val = BASE_COLORS[name];
-		if (opacity && val.startsWith('#')) {
+		if (alpha !== null && val.startsWith('#')) {
 			const rgb = hexToRgb(val);
-			return `rgb(${rgb} / ${Number(opacity) / 100})`;
+			return `rgb(${rgb} / ${alpha})`;
 		}
 		return val;
 	}
@@ -373,9 +409,9 @@ function resolveColor(name: string, opacity?: string): string | null {
 		const colorFamily = parts.slice(0, -1).join('-');
 		if (COLORS[colorFamily] && COLORS[colorFamily][shade]) {
 			const hex = COLORS[colorFamily][shade];
-			if (opacity) {
+			if (alpha !== null) {
 				const rgb = hexToRgb(hex);
-				return `rgb(${rgb} / ${Number(opacity) / 100})`;
+				return `rgb(${rgb} / ${alpha})`;
 			}
 			return hex;
 		}
@@ -1063,7 +1099,7 @@ function generateUtilityBody(u: string): string | null {
 	}
 
 	// Text Color
-	if ((m = name.match(/^text-([^\/]+)(?:\/(\d+))?$/))) {
+	if ((m = name.match(/^text-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const color = resolveColor(m[1], m[2]);
 		if (color) return `color: ${color};`;
 	}
@@ -1099,20 +1135,20 @@ function generateUtilityBody(u: string): string | null {
 	if (name === 'bg-gradient-to-l') return 'background-image: linear-gradient(to left, var(--lithe-gradient-stops, var(--lithe-from, transparent), var(--lithe-to, transparent)));';
 	if (name === 'bg-gradient-to-tl') return 'background-image: linear-gradient(to top left, var(--lithe-gradient-stops, var(--lithe-from, transparent), var(--lithe-to, transparent)));';
 
-	if ((m = name.match(/^from-([^\/]+)(?:\/(\d+))?$/))) {
+	if ((m = name.match(/^from-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const c = resolveColor(m[1], m[2]);
 		if (c) return `--lithe-from: ${c}; --lithe-gradient-stops: var(--lithe-from), var(--lithe-to, rgb(255 255 255 / 0));`;
 	}
-	if ((m = name.match(/^via-([^\/]+)(?:\/(\d+))?$/))) {
+	if ((m = name.match(/^via-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const c = resolveColor(m[1], m[2]);
 		if (c) return `--lithe-via: ${c}; --lithe-gradient-stops: var(--lithe-from, rgb(255 255 255 / 0)), var(--lithe-via), var(--lithe-to, rgb(255 255 255 / 0));`;
 	}
-	if ((m = name.match(/^to-([^\/]+)(?:\/(\d+))?$/))) {
+	if ((m = name.match(/^to-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const c = resolveColor(m[1], m[2]);
 		if (c) return `--lithe-to: ${c};`;
 	}
 
-	if ((m = name.match(/^bg-([^\/]+)(?:\/(\d+))?$/))) {
+	if ((m = name.match(/^bg-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const color = resolveColor(m[1], m[2]);
 		if (color) return `background-color: ${color};`;
 	}
@@ -1127,7 +1163,7 @@ function generateUtilityBody(u: string): string | null {
 	if (name === 'rounded-2xl') return 'border-radius: 1rem;';
 	if (name === 'rounded-3xl') return 'border-radius: 1.5rem;';
 	if (name === 'rounded-full') return 'border-radius: 9999px;';
-	if ((m = name.match(/^rounded-\[(.+)\]$/))) return `border-radius: ${m[1]};`;
+	if ((m = name.match(/^rounded-\[(.+)\]$/))) return `border-radius: ${m[1].replace(/_/g, ' ')};`;
 
 	if (name === 'rounded-t-none') return 'border-top-left-radius: 0px; border-top-right-radius: 0px;';
 	if (name === 'rounded-t-sm') return 'border-top-left-radius: 0.125rem; border-top-right-radius: 0.125rem;';
@@ -1179,7 +1215,7 @@ function generateUtilityBody(u: string): string | null {
 	if (name === 'border-double') return 'border-style: double;';
 	if (name === 'border-none') return 'border-style: none;';
 
-	if ((m = name.match(/^border-([^\/]+)(?:\/(\d+))?$/))) {
+	if ((m = name.match(/^border-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const color = resolveColor(m[1], m[2]);
 		if (color) return `border-color: ${color};`;
 	}
@@ -1187,12 +1223,12 @@ function generateUtilityBody(u: string): string | null {
 	// Divide
 	if (name === 'divide-x') return '& > :not([hidden]) ~ :not([hidden]) { border-left-width: 1px; border-style: solid; }';
 	if (name === 'divide-y') return '& > :not([hidden]) ~ :not([hidden]) { border-top-width: 1px; border-style: solid; }';
-	if ((m = name.match(/^divide-([^\/]+)(?:\/(\d+))?$/))) {
+	if ((m = name.match(/^divide-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const c = resolveColor(m[1], m[2]);
 		if (c) return `& > :not([hidden]) ~ :not([hidden]) { border-color: ${c}; }`;
 	}
 
-	// Outline & Ring
+	// Outline
 	if (name === 'outline-none') return 'outline: 2px solid transparent; outline-offset: 2px;';
 	if (name === 'outline') return 'outline-style: solid;';
 	if (name === 'outline-dashed') return 'outline-style: dashed;';
@@ -1205,37 +1241,55 @@ function generateUtilityBody(u: string): string | null {
 		if (c) return `outline-color: ${c};`;
 	}
 
-	if (name === 'ring-0') return 'box-shadow: 0 0 0 0px var(--lithe-ring-color, rgb(59 130 246 / 0.5));';
-	if (name === 'ring-1') return 'box-shadow: 0 0 0 1px var(--lithe-ring-color, rgb(59 130 246 / 0.5));';
-	if (name === 'ring' || name === 'ring-3') return 'box-shadow: 0 0 0 3px var(--lithe-ring-color, rgb(59 130 246 / 0.5));';
-	if (name === 'ring-2') return 'box-shadow: 0 0 0 2px var(--lithe-ring-color, rgb(59 130 246 / 0.5));';
-	if (name === 'ring-4') return 'box-shadow: 0 0 0 4px var(--lithe-ring-color, rgb(59 130 246 / 0.5));';
-	if (name === 'ring-8') return 'box-shadow: 0 0 0 8px var(--lithe-ring-color, rgb(59 130 246 / 0.5));';
-	if (name === 'ring-inset') return '--lithe-ring-inset: inset;';
-	if ((m = name.match(/^ring-([^\/]+)(?:\/(\d+))?$/))) {
+	// Ring System
+	if (name === 'ring-0') return '--tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color); --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(0px + var(--tw-ring-offset-width)) var(--tw-ring-color); box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);';
+	if (name === 'ring-1') return '--tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color); --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color); box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);';
+	if (name === 'ring-2') return '--tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color); --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color); box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);';
+	if (name === 'ring' || name === 'ring-3') return '--tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color); --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color); box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);';
+	if (name === 'ring-4') return '--tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color); --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(4px + var(--tw-ring-offset-width)) var(--tw-ring-color); box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);';
+	if (name === 'ring-8') return '--tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color); --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(8px + var(--tw-ring-offset-width)) var(--tw-ring-color); box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);';
+	if (name === 'ring-inset') return '--tw-ring-inset: inset;';
+
+	if (name === 'ring-offset-0') return '--tw-ring-offset-width: 0px; --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);';
+	if (name === 'ring-offset-1') return '--tw-ring-offset-width: 1px; --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);';
+	if (name === 'ring-offset-2') return '--tw-ring-offset-width: 2px; --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);';
+	if (name === 'ring-offset-4') return '--tw-ring-offset-width: 4px; --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);';
+	if (name === 'ring-offset-8') return '--tw-ring-offset-width: 8px; --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);';
+
+	if ((m = name.match(/^ring-offset-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const c = resolveColor(m[1], m[2]);
-		if (c) return `--lithe-ring-color: ${c}; box-shadow: var(--lithe-ring-inset, ) 0 0 0 3px var(--lithe-ring-color);`;
+		if (c) return `--tw-ring-offset-color: ${c};`;
 	}
-	if ((m = name.match(/^ring-offset-(\d+)$/))) return `--lithe-ring-offset-width: ${m[1]}px;`;
 
-	// Shadows
-	if (name === 'shadow-sm') return 'box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);';
-	if (name === 'shadow') return 'box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);';
-	if (name === 'shadow-md') return 'box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);';
-	if (name === 'shadow-lg') return 'box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);';
-	if (name === 'shadow-xl') return 'box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);';
-	if (name === 'shadow-2xl') return 'box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);';
-	if (name === 'shadow-inner') return 'box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);';
-	if (name === 'shadow-none') return 'box-shadow: 0 0 #0000;';
+	if ((m = name.match(/^ring-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
+		const c = resolveColor(m[1], m[2]);
+		if (c) return `--tw-ring-color: ${c};`;
+	}
 
-	// Colored Shadows: shadow-indigo-500/25, shadow-purple-500/30, shadow-indigo-600/30, shadow-[#123456]
-	if ((m = name.match(/^shadow-([^\/]+)(?:\/(\d+))?$/))) {
+	// Box Shadows with CSS variables
+	if (name === 'shadow-sm') return '--tw-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); --tw-shadow-colored: 0 1px 2px 0 var(--tw-shadow-color); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);';
+	if (name === 'shadow') return '--tw-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); --tw-shadow-colored: 0 1px 3px 0 var(--tw-shadow-color), 0 1px 2px -1px var(--tw-shadow-color); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);';
+	if (name === 'shadow-md') return '--tw-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); --tw-shadow-colored: 0 4px 6px -1px var(--tw-shadow-color), 0 2px 4px -2px var(--tw-shadow-color); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);';
+	if (name === 'shadow-lg') return '--tw-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); --tw-shadow-colored: 0 10px 15px -3px var(--tw-shadow-color), 0 4px 6px -4px var(--tw-shadow-color); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);';
+	if (name === 'shadow-xl') return '--tw-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); --tw-shadow-colored: 0 20px 25px -5px var(--tw-shadow-color), 0 8px 10px -6px var(--tw-shadow-color); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);';
+	if (name === 'shadow-2xl') return '--tw-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); --tw-shadow-colored: 0 25px 50px -12px var(--tw-shadow-color); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);';
+	if (name === 'shadow-inner') return '--tw-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05); --tw-shadow-colored: inset 0 2px 4px 0 var(--tw-shadow-color); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);';
+	if (name === 'shadow-none') return '--tw-shadow: 0 0 #0000; --tw-shadow-colored: 0 0 #0000; box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);';
+
+	if ((m = name.match(/^shadow-\[(.+)\]$/))) {
+		const arb = m[1].replace(/_/g, ' ');
+		return `--tw-shadow: ${arb}; box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);`;
+	}
+
+	// Colored Shadows: shadow-indigo-500/25, shadow-purple-500/30, shadow-indigo-600/30
+	if ((m = name.match(/^shadow-([^\/]+)(?:\/(\d+|\[.+\]))?$/))) {
 		const c = resolveColor(m[1], m[2] || '25');
-		if (c) return `box-shadow: 0 10px 15px -3px ${c}, 0 4px 6px -4px ${c};`;
+		if (c) return `--tw-shadow-color: ${c}; --tw-shadow: 0 10px 15px -3px ${c}, 0 4px 6px -4px ${c}; box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);`;
 	}
 
 	// Opacity
 	if ((m = name.match(/^opacity-(\d+)$/))) return `opacity: ${Number(m[1]) / 100};`;
+	if ((m = name.match(/^opacity-\[(.+)\]$/))) return `opacity: ${m[1]};`;
 
 	// Filters & Backdrop Filters
 	if (name === 'blur-none') return 'filter: blur(0);';
@@ -1246,7 +1300,7 @@ function generateUtilityBody(u: string): string | null {
 	if (name === 'blur-xl') return 'filter: blur(24px);';
 	if (name === 'blur-2xl') return 'filter: blur(40px);';
 	if (name === 'blur-3xl') return 'filter: blur(64px);';
-	if ((m = name.match(/^blur-\[(.+)\]$/))) return `filter: blur(${m[1]});`;
+	if ((m = name.match(/^blur-\[(.+)\]$/))) return `filter: blur(${m[1].replace(/_/g, ' ')});`;
 
 	if (name === 'backdrop-blur-none') return 'backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0);';
 	if (name === 'backdrop-blur-sm') return 'backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);';
@@ -1256,6 +1310,7 @@ function generateUtilityBody(u: string): string | null {
 	if (name === 'backdrop-blur-xl') return 'backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);';
 	if (name === 'backdrop-blur-2xl') return 'backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);';
 	if (name === 'backdrop-blur-3xl') return 'backdrop-filter: blur(64px); -webkit-backdrop-filter: blur(64px);';
+	if ((m = name.match(/^backdrop-blur-\[(.+)\]$/))) return `backdrop-filter: blur(${m[1].replace(/_/g, ' ')}); -webkit-backdrop-filter: blur(${m[1].replace(/_/g, ' ')});`;
 
 	if ((m = name.match(/^brightness-(\d+)$/))) return `filter: brightness(${Number(m[1]) / 100});`;
 	if ((m = name.match(/^contrast-(\d+)$/))) return `filter: contrast(${Number(m[1]) / 100});`;
@@ -1287,6 +1342,7 @@ function generateUtilityBody(u: string): string | null {
 
 	// Transforms: Scale, Rotate, Translate
 	if ((m = name.match(/^scale-(\d+)$/))) return `transform: scale(${Number(m[1]) / 100});`;
+	if ((m = name.match(/^scale-\[(.+)\]$/))) return `transform: scale(${m[1]});`;
 	if ((m = name.match(/^scale-x-(\d+)$/))) return `transform: scaleX(${Number(m[1]) / 100});`;
 	if ((m = name.match(/^scale-y-(\d+)$/))) return `transform: scaleY(${Number(m[1]) / 100});`;
 

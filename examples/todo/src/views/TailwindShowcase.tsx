@@ -2,7 +2,7 @@ import { signal } from 'lithe/core';
 import { Link } from 'lithe/router';
 import { ThemeToggle } from '../components/ThemeToggle.tsx';
 
-type TabType = 'overview' | 'badges' | 'cards' | 'buttons' | 'forms' | 'palette' | 'layout' | 'animations';
+type TabType = 'overview' | 'buttons' | 'glass' | 'cards' | 'badges' | 'forms' | 'palette' | 'layout' | 'animations';
 
 export function TailwindShowcase() {
 	const activeTab = signal<TabType>('overview');
@@ -13,6 +13,7 @@ export function TailwindShowcase() {
 	const searchQuery = signal('');
 	const activeColor = signal('indigo');
 	const animationType = signal<'spin' | 'ping' | 'pulse' | 'bounce'>('pulse');
+	const glassBlur = signal<'sm' | 'md' | 'lg' | 'xl' | '2xl'>('xl');
 
 	const categories = [
 		{ id: 'all', label: 'All Components' },
@@ -67,240 +68,360 @@ export function TailwindShowcase() {
 	};
 
 	return (
-		<main class="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
-			{/* Top Bar / Navigation */}
-			<header class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 pb-8 border-b border-slate-800">
-				<div class="flex items-center gap-3">
-					<div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-						<span class="text-2xl font-black text-white">⚡</span>
-					</div>
-					<div>
-						<div class="flex items-center gap-2">
-							<h1 class="text-2xl font-black text-white tracking-tight">Tailwind CSS Engine</h1>
-							<span class="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-								v3 & v4 Native
-							</span>
+		<main class="relative min-h-screen bg-slate-950 text-slate-100 px-6 py-12 lg:px-12 font-sans overflow-hidden">
+			{/* Ambient Glowing Background Orbs to Power Glassmorphism & Depth */}
+			<div class="absolute -top-40 -left-40 w-[32rem] h-[32rem] bg-indigo-600/20 rounded-full blur-3xl pointer-events-none"></div>
+			<div class="absolute top-1/3 -right-40 w-[32rem] h-[32rem] bg-purple-600/15 rounded-full blur-3xl pointer-events-none"></div>
+			<div class="absolute bottom-1/4 left-1/4 w-[28rem] h-[28rem] bg-pink-600/10 rounded-full blur-3xl pointer-events-none"></div>
+			<div class="absolute -bottom-40 right-1/4 w-[32rem] h-[32rem] bg-emerald-600/10 rounded-full blur-3xl pointer-events-none"></div>
+
+			<div class="relative z-10 max-w-6xl mx-auto flex flex-col gap-10">
+				{/* Top Bar / Navigation with Generous Breathing Room */}
+				<header class="flex flex-col md:flex-row items-center justify-between gap-6 pb-8 border-b border-slate-800/80">
+					<div class="flex items-center gap-4">
+						<div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
+							<span class="text-2xl font-black text-white">⚡</span>
 						</div>
-						<p class="text-xs text-slate-400">Zero-dependency compiler, arbitrary values, responsive layers & reactive state</p>
+						<div>
+							<div class="flex items-center gap-3">
+								<h1 class="text-2xl font-extrabold text-white tracking-tight">Tailwind CSS Engine</h1>
+								<span class="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+									v3 & v4 Native
+								</span>
+							</div>
+							<p class="text-xs text-slate-400 mt-0.5">Zero-dependency compiler, arbitrary values, responsive layers & reactive state</p>
+						</div>
 					</div>
-				</div>
 
-				<nav class="flex items-center gap-3 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-xl border border-slate-800">
-					<Link to="/" class="px-3 py-1.5 text-sm font-medium text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 transition-all">
-						🏠 Tasks
-					</Link>
-					<Link to="/projects" class="px-3 py-1.5 text-sm font-medium text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 transition-all">
-						📁 Projects
-					</Link>
-					<Link to="/remote" class="px-3 py-1.5 text-sm font-medium text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 transition-all">
-						☁️ Remote
-					</Link>
-					<div class="h-4 w-px bg-slate-700 mx-1"></div>
-					<ThemeToggle />
-				</nav>
-			</header>
+					<nav class="flex items-center gap-2 bg-slate-900/80 backdrop-blur-xl p-1.5 rounded-2xl border border-slate-800 shadow-lg">
+						<Link to="/" class="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white rounded-xl hover:bg-slate-800 transition-all">
+							🏠 Tasks
+						</Link>
+						<Link to="/projects" class="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white rounded-xl hover:bg-slate-800 transition-all">
+							📁 Projects
+						</Link>
+						<Link to="/remote" class="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white rounded-xl hover:bg-slate-800 transition-all">
+							☁️ Remote
+						</Link>
+						<div class="h-4 w-px bg-slate-700 mx-1"></div>
+						<ThemeToggle />
+					</nav>
+				</header>
 
-			{/* Main Showcase Body */}
-			<section class="max-w-7xl mx-auto mt-8 flex flex-col gap-6">
-				{/* Tab Selector Pill Bar */}
-				<div class="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80">
-					{[
-						{ id: 'overview', label: '🌟 Overview', icon: '🌟' },
-						{ id: 'badges', label: '🏷️ Badges & Pills', icon: '🏷️' },
-						{ id: 'cards', label: '🃏 Cards & Glass', icon: '🃏' },
-						{ id: 'buttons', label: '⚡ Buttons & Clicks', icon: '⚡' },
-						{ id: 'forms', label: '📝 Inputs & Controls', icon: '📝' },
-						{ id: 'palette', label: '🎨 Color Palette', icon: '🎨' },
-						{ id: 'layout', label: '📐 Grid & Flex', icon: '📐' },
-						{ id: 'animations', label: '💫 Animations', icon: '💫' }
-					].map(tab => (
+				{/* 9 Interactive Showcase Navigation Tabs */}
+				<nav class="flex items-center gap-2 overflow-x-auto pb-3 border-b border-slate-800/80">
+					{(
+						[
+							{ id: 'overview', label: '🚀 Overview & Hero', icon: '✨' },
+							{ id: 'buttons', label: '⚡ Interactive Buttons', icon: '🔘' },
+							{ id: 'glass', label: '💎 Glassmorphism Lab', icon: '🔮' },
+							{ id: 'cards', label: '🃏 Metric Cards', icon: '📊' },
+							{ id: 'badges', label: '🏷️ Badges & Pills', icon: '🏷️' },
+							{ id: 'forms', label: '📝 Forms & Inputs', icon: '⌨️' },
+							{ id: 'palette', label: '🎨 22 Color Palettes', icon: '🌈' },
+							{ id: 'layout', label: '📐 Flex & Grid Layout', icon: '🧩' },
+							{ id: 'animations', label: '💫 Micro-Animations', icon: '🌀' }
+						] as const
+					).map(tab => (
 						<button
 							type="button"
 							key={tab.id}
-							onClick={() => activeTab.value = tab.id as TabType}
-							class={() => `px-4 py-2 text-sm font-semibold rounded-xl transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+							onClick={() => activeTab.value = tab.id}
+							class={() => `px-4 py-2.5 text-xs font-medium rounded-xl whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center gap-2 border select-none outline-none ${
 								activeTab.value === tab.id
-									? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-2 ring-indigo-400/40'
-									: 'bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800/80'
+									? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25 border-indigo-500'
+									: 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border-slate-800/80 hover:border-slate-700'
 							}`}
 						>
-							{tab.label}
+							<span>{tab.icon}</span>
+							<span>{tab.label}</span>
 						</button>
 					))}
-				</div>
+				</nav>
 
-				{/* Tab Content Display */}
-				{() => {
-					// 1. OVERVIEW TAB
-					if (activeTab.value === 'overview') {
-						return (
-							<div class="flex flex-col gap-6">
-								{/* Hero Card */}
-								<div class="relative overflow-hidden p-8 rounded-3xl bg-gradient-to-r from-indigo-900/60 via-purple-900/40 to-slate-900 border border-indigo-500/30 shadow-2xl backdrop-blur-xl">
-									<div class="absolute -right-16 -top-16 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
-									<div class="absolute -left-16 -bottom-16 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
-
-									<div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-										<div class="max-w-2xl flex flex-col gap-3">
-											<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold w-fit">
-												<span>🚀 Built-in Zero Runtime</span>
-												<span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping"></span>
+				{/* Dynamic View Tab Content with Clean Spacing */}
+				<section class="flex flex-col gap-8">
+					{() => {
+						// 1. OVERVIEW HERO TAB
+						if (activeTab.value === 'overview') {
+							return (
+								<div class="flex flex-col gap-8">
+									{/* Hero Glass Card with Live Signal State */}
+									<div class="relative overflow-hidden p-8 md:p-12 rounded-3xl bg-slate-900/60 border border-slate-800/90 shadow-2xl backdrop-blur-2xl">
+										<div class="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+											<div class="max-w-2xl flex flex-col gap-4">
+												<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/15 border border-indigo-400/25 text-indigo-300 text-xs font-medium w-fit">
+													<span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+													<span>Zero-Runtime Tailwind Compilation</span>
+												</div>
+												<h2 class="text-3xl md:text-5xl font-extrabold text-white tracking-tight leading-tight">
+													Full Tailwind v3 & v4 Utilities Inside Lithe
+												</h2>
+												<p class="text-sm md:text-base text-slate-300 leading-relaxed">
+													Experience 100% native Tailwind CSS utility classes, arbitrary values, gradient stops, glassmorphism, responsive grid breakpoints, pseudo-states, and micro-interactions with zero third-party dependencies.
+												</p>
 											</div>
-											<h2 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-												Next-Gen Utility CSS with Lithe Reactivity
-											</h2>
-											<p class="text-sm md:text-base text-slate-300 leading-relaxed">
-												Experience zero-bundle PostCSS transforms, lightning-fast compilation, arbitrary values (<code>w-[320px]</code>), full 22-palette color tables, and seamless integration with Lithe fine-grained signals.
-											</p>
+
+											<div class="flex flex-col gap-3 shrink-0">
+												<button
+													type="button"
+													onClick={() => clickCount.value++}
+													class="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold text-sm shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 transition-all duration-150 cursor-pointer flex items-center gap-3 select-none outline-none"
+												>
+													<span>⚡ Click Counter:</span>
+													<span class="px-2.5 py-0.5 rounded-lg bg-black/30 text-white font-mono font-bold">
+														{() => clickCount.value}
+													</span>
+												</button>
+												<button
+													type="button"
+													onClick={() => activeTab.value = 'glass'}
+													class="px-6 py-3 rounded-2xl backdrop-blur-xl bg-white/10 hover:bg-white/15 text-white font-medium text-xs border border-white/15 shadow-md hover:border-white/30 hover:-translate-y-0.5 active:translate-y-0 active:scale-95 transition-all duration-150 cursor-pointer text-center select-none outline-none"
+												>
+													Explore Glassmorphism Lab 🔮
+												</button>
+											</div>
+										</div>
+									</div>
+
+									{/* 4 Feature Highlights */}
+									<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+										{[
+											{ icon: '🎨', title: '22 Color Palettes', desc: '50 through 950 shades + arbitrary opacity / hex values' },
+											{ icon: '🔮', title: 'Glassmorphism', desc: 'Backdrop blur (sm to 3xl) with subtle frosted borders' },
+											{ icon: '📐', title: 'Flex & Grid System', desc: 'Auto columns, arbitrary spans, gap scales & place alignment' },
+											{ icon: '⚡', title: 'Signal Reactivity', desc: 'Fine-grained DOM updates without full page re-renders' }
+										].map(item => (
+											<div class="p-6 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-indigo-500/40 hover:shadow-xl hover:shadow-indigo-500/10 transition-all duration-150">
+												<div class="w-10 h-10 rounded-xl bg-indigo-500/15 text-indigo-400 flex items-center justify-center text-lg mb-3">
+													{item.icon}
+												</div>
+												<h3 class="text-sm font-bold text-white mb-1">{item.title}</h3>
+												<p class="text-xs text-slate-400 leading-relaxed">{item.desc}</p>
+											</div>
+										))}
+									</div>
+								</div>
+							);
+						}
+
+						// 2. INTERACTIVE BUTTONS TAB
+						if (activeTab.value === 'buttons') {
+							return (
+								<div class="flex flex-col gap-8">
+									{/* Button Styles Matrix */}
+									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col gap-6 shadow-xl">
+										<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+											<div>
+												<h3 class="text-base font-bold text-white">Button Variants & Micro-Interactions</h3>
+												<p class="text-xs text-slate-400 mt-0.5">Smooth active press feedback, hover lifts, glow shadows, with clean zero-ring clicks.</p>
+											</div>
+											<span class="px-3 py-1 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 text-xs font-medium w-fit">
+												Zero-Ring Pure Click
+											</span>
 										</div>
 
-										<div class="flex flex-col gap-3 shrink-0">
+										<div class="flex flex-wrap items-center gap-4 pt-2">
+											{/* Primary Solid Button */}
 											<button
 												type="button"
 												onClick={() => clickCount.value++}
-												class="px-6 py-3.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold rounded-2xl shadow-xl shadow-indigo-500/25 hover:shadow-indigo-500/40 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-3 text-sm"
+												class="px-5 py-2.5 bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 active:scale-95 text-white font-semibold text-sm rounded-xl shadow-md shadow-indigo-500/20 hover:shadow-lg hover:shadow-indigo-500/30 hover:-translate-y-0.5 active:translate-y-0 select-none outline-none transition-all duration-150 cursor-pointer inline-flex items-center gap-2"
 											>
-												<span>⚡ Pulse Signal:</span>
-												<span class="px-2.5 py-0.5 rounded-lg bg-black/30 font-mono text-xs">{() => clickCount.value}</span>
+												<span>🚀 Primary (+1)</span>
 											</button>
-											<div class="text-center text-xs text-slate-400 font-mono">
-												Reactive without VDOM re-rendering
+
+											{/* Emerald Success Button */}
+											<button
+												type="button"
+												onClick={() => clickCount.value += 10}
+												class="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-95 text-white font-semibold text-sm rounded-xl shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 hover:-translate-y-0.5 active:translate-y-0 select-none outline-none transition-all duration-150 cursor-pointer inline-flex items-center gap-2"
+											>
+												<span>✨ Emerald (+10)</span>
+											</button>
+
+											{/* Rose Danger Button */}
+											<button
+												type="button"
+												onClick={() => clickCount.value = 0}
+												class="px-5 py-2.5 bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 active:scale-95 text-white font-semibold text-sm rounded-xl shadow-md shadow-rose-500/20 hover:shadow-lg hover:shadow-rose-500/30 hover:-translate-y-0.5 active:translate-y-0 select-none outline-none transition-all duration-150 cursor-pointer inline-flex items-center gap-2"
+											>
+												<span>🗑️ Danger Reset</span>
+											</button>
+
+											{/* Frosted Glass Button */}
+											<button
+												type="button"
+												onClick={() => clickCount.value += 5}
+												class="px-5 py-2.5 backdrop-blur-xl bg-white/10 hover:bg-white/15 active:scale-95 text-white font-semibold text-sm rounded-xl border border-white/15 shadow-md hover:border-white/30 hover:-translate-y-0.5 active:translate-y-0 select-none outline-none transition-all duration-150 cursor-pointer inline-flex items-center gap-2"
+											>
+												<span>🔮 Frosted Glass (+5)</span>
+											</button>
+
+											{/* Neon Outline Glow Button */}
+											<button
+												type="button"
+												class="px-5 py-2.5 bg-transparent hover:bg-indigo-500/10 active:scale-95 text-indigo-300 hover:text-indigo-200 font-semibold text-sm rounded-xl border border-indigo-500/40 hover:border-indigo-400 shadow-sm hover:-translate-y-0.5 active:translate-y-0 select-none outline-none transition-all duration-150 cursor-pointer inline-flex items-center gap-2"
+											>
+												<span>💫 Neon Outline</span>
+											</button>
+
+											{/* Disabled Button */}
+											<button
+												type="button"
+												disabled
+												class="px-5 py-2.5 bg-slate-900 text-slate-500 font-semibold text-sm rounded-xl border border-slate-800 opacity-50 cursor-not-allowed inline-flex items-center gap-2 select-none outline-none"
+											>
+												<span>🔒 Disabled</span>
+											</button>
+										</div>
+									</div>
+
+									{/* Reactive Live Signal Counter */}
+									<div class="p-8 rounded-3xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-xl flex items-center justify-between shadow-xl">
+										<div class="flex items-center gap-4">
+											<div class="w-14 h-14 rounded-2xl bg-indigo-500/15 text-indigo-400 flex items-center justify-center font-black text-2xl border border-indigo-500/25">
+												#
+											</div>
+											<div>
+												<div class="text-base font-bold text-white">Live Reactive Signal Counter</div>
+												<div class="text-xs text-slate-400 mt-0.5">Updates the DOM node immediately without re-rendering the whole page</div>
+											</div>
+										</div>
+										<div class="text-4xl font-black text-indigo-400 font-mono tracking-tight">
+											{() => clickCount.value}
+										</div>
+									</div>
+
+									{/* Toggle Switch Controls */}
+									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col gap-4 shadow-xl">
+										<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Toggle Switches & Binary Signals</h3>
+										<div class="flex flex-col md:flex-row gap-6">
+											{/* Toggle 1 */}
+											<div
+												onClick={() => toggleState.value = !toggleState.value}
+												class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-4 cursor-pointer hover:border-slate-700 transition-all flex-1 select-none"
+											>
+												<div class="text-xs font-medium text-slate-300">
+													Auto-Compile CSS: <span class={() => toggleState.value ? 'text-emerald-400 font-bold' : 'text-slate-500'}>{() => toggleState.value ? 'ENABLED' : 'PAUSED'}</span>
+												</div>
+												<div class={() => `w-12 h-6 rounded-full p-1 transition-all ${toggleState.value ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+													<div class={() => `w-4 h-4 rounded-full bg-white transition-all transform ${toggleState.value ? 'translate-x-6' : 'translate-x-0'}`}></div>
+												</div>
+											</div>
+
+											{/* Toggle 2 */}
+											<div
+												onClick={() => switchState.value = !switchState.value}
+												class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-4 cursor-pointer hover:border-slate-700 transition-all flex-1 select-none"
+											>
+												<div class="text-xs font-medium text-slate-300">
+													Minification Engine: <span class={() => switchState.value ? 'text-indigo-400 font-bold' : 'text-slate-500'}>{() => switchState.value ? 'ACTIVE' : 'OFF'}</span>
+												</div>
+												<div class={() => `w-12 h-6 rounded-full p-1 transition-all ${switchState.value ? 'bg-indigo-600' : 'bg-slate-700'}`}>
+													<div class={() => `w-4 h-4 rounded-full bg-white transition-all transform ${switchState.value ? 'translate-x-6' : 'translate-x-0'}`}></div>
+												</div>
 											</div>
 										</div>
 									</div>
 								</div>
+							);
+						}
 
-								{/* 4 Feature Highlights Grid */}
-								<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-									<div class="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col gap-2 hover:border-slate-700 transition-all">
-										<div class="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-lg">
-											🎯
+						// 3. GLASSMORPHISM LAB TAB
+						if (activeTab.value === 'glass') {
+							return (
+								<div class="flex flex-col gap-8">
+									{/* Interactive Glass Controls */}
+									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
+										<div>
+											<h3 class="text-base font-bold text-white">Interactive Glassmorphism Studio</h3>
+											<p class="text-xs text-slate-400 mt-0.5">Change backdrop blur strength to observe real-time glass diffusion over vibrant background mesh</p>
 										</div>
-										<div class="font-bold text-white text-base mt-1">Arbitrary Syntax</div>
-										<p class="text-xs text-slate-400">Full support for custom brackets like <code>w-[280px]</code>, <code>bg-[#3b82f6]</code> and <code>grid-cols-[1fr_2fr]</code>.</p>
+										<div class="flex flex-wrap items-center gap-2">
+											{(['sm', 'md', 'lg', 'xl', '2xl'] as const).map(b => (
+												<button
+													type="button"
+													key={b}
+													onClick={() => glassBlur.value = b}
+													class={() => `px-3.5 py-1.5 text-xs font-semibold rounded-xl transition-all duration-150 cursor-pointer border select-none outline-none ${
+														glassBlur.value === b
+															? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30'
+															: 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white'
+													}`}
+												>
+													blur-{b}
+												</button>
+											))}
+										</div>
 									</div>
 
-									<div class="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col gap-2 hover:border-slate-700 transition-all">
-										<div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg">
-											📱
+									{/* 3 Glass Cards Over Colored Radial Gradient Backdrops with Generous Gaps */}
+									<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+										{/* Glass Card 1: White Frost */}
+										<div class="relative overflow-hidden p-8 rounded-3xl backdrop-blur-xl bg-white/10 border border-white/20 shadow-2xl flex flex-col justify-between gap-8">
+											<div class="w-14 h-14 rounded-2xl bg-white/15 border border-white/25 flex items-center justify-center text-2xl shadow-lg">
+												❄️
+											</div>
+											<div>
+												<h4 class="text-lg font-bold text-white">White Frost Glass</h4>
+												<p class="text-xs text-slate-200 mt-1">Rendered with <code>backdrop-blur-xl bg-white/10 border-white/20</code></p>
+											</div>
+											<div class="flex items-center justify-between pt-4 border-t border-white/10 text-xs text-slate-200">
+												<span>Transmission:</span>
+												<span class="font-mono font-bold">92%</span>
+											</div>
 										</div>
-										<div class="font-bold text-white text-base mt-1">Multi-Tier Breakpoints</div>
-										<p class="text-xs text-slate-400">Seamlessly responsive with <code>sm:</code>, <code>md:</code>, <code>lg:</code>, <code>xl:</code> and <code>2xl:</code> media queries.</p>
-									</div>
 
-									<div class="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col gap-2 hover:border-slate-700 transition-all">
-										<div class="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-lg">
-											🌓
+										{/* Glass Card 2: Indigo Prism */}
+										<div class="relative overflow-hidden p-8 rounded-3xl backdrop-blur-xl bg-indigo-950/40 border border-indigo-500/30 shadow-2xl flex flex-col justify-between gap-8">
+											<div class="w-14 h-14 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-2xl shadow-lg shadow-indigo-500/20">
+												💎
+											</div>
+											<div>
+												<h4 class="text-lg font-bold text-white">Indigo Prism Glass</h4>
+												<p class="text-xs text-slate-300 mt-1">Rendered with <code>backdrop-blur-xl bg-indigo-950/40 border-indigo-500/30</code></p>
+											</div>
+											<div class="flex items-center justify-between pt-4 border-t border-indigo-500/20 text-xs text-indigo-300">
+												<span>Refraction Index:</span>
+												<span class="font-mono font-bold">1.52 (Crown Glass)</span>
+											</div>
 										</div>
-										<div class="font-bold text-white text-base mt-1">Dark Mode Ready</div>
-										<p class="text-xs text-slate-400">Class and attribute based dark mode modifiers (<code>dark:bg-slate-900</code>) that adapt instantly.</p>
-									</div>
 
-									<div class="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col gap-2 hover:border-slate-700 transition-all">
-										<div class="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold text-lg">
-											✨
+										{/* Glass Card 3: Deep Dark Obsidian */}
+										<div class="relative overflow-hidden p-8 rounded-3xl backdrop-blur-xl bg-slate-900/60 border border-slate-700/50 shadow-2xl flex flex-col justify-between gap-8">
+											<div class="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-600 flex items-center justify-center text-2xl shadow-lg">
+												🌌
+											</div>
+											<div>
+												<h4 class="text-lg font-bold text-white">Dark Obsidian Glass</h4>
+												<p class="text-xs text-slate-400 mt-1">Rendered with <code>backdrop-blur-xl bg-slate-900/60 border-slate-700/50</code></p>
+											</div>
+											<div class="flex items-center justify-between pt-4 border-t border-slate-800 text-xs text-slate-400">
+												<span>Contrast Ratio:</span>
+												<span class="font-mono font-bold text-emerald-400">14.8:1 AAA</span>
+											</div>
 										</div>
-										<div class="font-bold text-white text-base mt-1">Micro-Animations</div>
-										<p class="text-xs text-slate-400">Keyframed transitions, smooth transforms, <code>animate-spin</code>, <code>animate-ping</code>, and <code>animate-pulse</code>.</p>
 									</div>
 								</div>
-							</div>
-						);
-					}
+							);
+						}
 
-					// 2. BADGES & PILLS TAB
-					if (activeTab.value === 'badges') {
-						return (
-							<div class="flex flex-col gap-6">
-								{/* Status Badges Section */}
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Status & State Badges</h3>
-									<div class="flex flex-wrap items-center gap-3">
-										<span class="px-3.5 py-1.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-2 shadow-sm">
-											<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-											Operational (99.99%)
-										</span>
-										<span class="px-3.5 py-1.5 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-2 shadow-sm">
-											<span class="w-2 h-2 rounded-full bg-amber-400"></span>
-											Syncing Database
-										</span>
-										<span class="px-3.5 py-1.5 text-xs font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-2 shadow-sm">
-											<span class="w-2 h-2 rounded-full bg-rose-400"></span>
-											Rate Limited
-										</span>
-										<span class="px-3.5 py-1.5 text-xs font-semibold rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 flex items-center gap-2 shadow-sm">
-											<span class="w-2 h-2 rounded-full bg-sky-400"></span>
-											Cloud Deployed
-										</span>
-										<span class="px-3.5 py-1.5 text-xs font-semibold rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-2 shadow-sm">
-											<span class="w-2 h-2 rounded-full bg-purple-400"></span>
-											Signal Connected
-										</span>
-									</div>
-								</div>
-
-								{/* Category Tag Filtering */}
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<div class="flex items-center justify-between">
-										<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Interactive Tag Selector</h3>
-										<span class="text-xs text-indigo-400 font-mono">Selected: {() => selectedCategory.value}</span>
-									</div>
-									<div class="flex flex-wrap gap-2">
-										{categories.map(c => (
-											<button
-												type="button"
-												key={c.id}
-												onClick={() => selectedCategory.value = c.id}
-												class={() => `px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer border ${
-													selectedCategory.value === c.id
-														? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30 scale-105'
-														: 'bg-slate-800/90 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'
-												}`}
-											>
-												{c.label}
-											</button>
-										))}
-									</div>
-									<div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs text-slate-300">
-										<span>Filtered component list count:</span>
-										<span class="px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-400 font-bold font-mono">
-											{() => selectedCategory.value === 'all' ? '48 Utilities' : '12 Utilities Active'}
-										</span>
-									</div>
-								</div>
-
-								{/* Pill Variations */}
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Pill Styles & Outlines</h3>
-									<div class="flex flex-wrap items-center gap-3">
-										<span class="px-3 py-1 text-xs font-bold rounded bg-indigo-600 text-white shadow">Square Pill</span>
-										<span class="px-3 py-1 text-xs font-bold rounded-md bg-purple-600 text-white shadow">Rounded-md</span>
-										<span class="px-3 py-1 text-xs font-bold rounded-xl bg-pink-600 text-white shadow">Rounded-xl</span>
-										<span class="px-3 py-1 text-xs font-bold rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow">Gradient Full</span>
-										<span class="px-3 py-1 text-xs font-bold rounded-full border border-dashed border-slate-600 text-slate-300">Dashed Border</span>
-									</div>
-								</div>
-							</div>
-						);
-					}
-
-					// 3. CARDS & GLASSMORPHISM TAB
-					if (activeTab.value === 'cards') {
-						return (
-							<div class="flex flex-col gap-6">
-								{/* 3 Interactive Metric Cards */}
-								<div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+						// 4. METRIC CARDS TAB
+						if (activeTab.value === 'cards') {
+							return (
+								<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
 									{/* Card 1 */}
-									<div class="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between gap-4 shadow-xl hover:border-indigo-500/50 hover:shadow-indigo-500/10 transition-all">
+									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col justify-between gap-6 shadow-xl hover:border-indigo-500/50 hover:shadow-indigo-500/10 transition-all duration-150">
 										<div class="flex items-center justify-between">
 											<span class="text-xs font-bold uppercase tracking-wider text-slate-400">Signal Updates</span>
-											<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+											<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
 												+36.8M/s
 											</span>
 										</div>
 										<div>
 											<div class="text-4xl font-black text-white tracking-tight">2.72 ms</div>
-											<div class="text-xs text-slate-400 mt-1">100k updates across 1k signals</div>
+											<div class="text-xs text-slate-400 mt-1.5">100k updates across 1k signals</div>
 										</div>
 										<div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
 											<div class="bg-gradient-to-r from-emerald-500 to-teal-400 h-1.5 rounded-full w-full"></div>
@@ -308,16 +429,16 @@ export function TailwindShowcase() {
 									</div>
 
 									{/* Card 2 */}
-									<div class="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between gap-4 shadow-xl hover:border-purple-500/50 hover:shadow-purple-500/10 transition-all">
+									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col justify-between gap-6 shadow-xl hover:border-purple-500/50 hover:shadow-purple-500/10 transition-all duration-150">
 										<div class="flex items-center justify-between">
 											<span class="text-xs font-bold uppercase tracking-wider text-slate-400">Bundle Footprint</span>
-											<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">
+											<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/25">
 												Zero Deps
 											</span>
 										</div>
 										<div>
 											<div class="text-4xl font-black text-white tracking-tight">12.4 KB</div>
-											<div class="text-xs text-slate-400 mt-1">Gzipped core runtime & router</div>
+											<div class="text-xs text-slate-400 mt-1.5">Gzipped core runtime & router</div>
 										</div>
 										<div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
 											<div class="bg-gradient-to-r from-purple-500 to-pink-500 h-1.5 rounded-full w-full"></div>
@@ -325,332 +446,189 @@ export function TailwindShowcase() {
 									</div>
 
 									{/* Card 3 */}
-									<div class="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between gap-4 shadow-xl hover:border-sky-500/50 hover:shadow-sky-500/10 transition-all">
+									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col justify-between gap-6 shadow-xl hover:border-sky-500/50 hover:shadow-sky-500/10 transition-all duration-150">
 										<div class="flex items-center justify-between">
 											<span class="text-xs font-bold uppercase tracking-wider text-slate-400">TypeScript Passes</span>
-											<span class="px-2.5 py-1 text-xs font-bold rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30">
+											<span class="px-2.5 py-1 text-xs font-semibold rounded-full bg-sky-500/15 text-sky-400 border border-sky-500/25">
 												7 Stages
 											</span>
 										</div>
 										<div>
 											<div class="text-4xl font-black text-white tracking-tight">100% TSX</div>
-											<div class="text-xs text-slate-400 mt-1">Native AST & type stripping</div>
+											<div class="text-xs text-slate-400 mt-1.5">Native AST & type stripping</div>
 										</div>
 										<div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
 											<div class="bg-gradient-to-r from-sky-500 to-indigo-500 h-1.5 rounded-full w-full"></div>
 										</div>
 									</div>
 								</div>
+							);
+						}
 
-								{/* Glassmorphism Showcase Card */}
-								<div class="p-8 rounded-3xl bg-slate-900/40 backdrop-blur-2xl border border-white/10 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
-									<div class="flex items-center gap-4">
-										<div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-3xl shadow-lg shadow-purple-500/30">
-											💎
-										</div>
-										<div>
-											<h4 class="text-lg font-bold text-white">Glassmorphism & Backdrop Filters</h4>
-											<p class="text-xs text-slate-400">Rendered with <code>backdrop-blur-2xl</code> and <code>bg-slate-900/40</code></p>
-										</div>
-									</div>
-
-									<div class="flex items-center gap-3">
-										<button
-											type="button"
-											class="px-4 py-2 text-xs font-semibold rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md transition-all cursor-pointer"
-										>
-											Preview Glass
-										</button>
-										<button
-											type="button"
-											class="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
-										>
-											Apply Effect
-										</button>
-									</div>
-								</div>
-							</div>
-						);
-					}
-
-					// 4. BUTTONS & INTERACTIONS TAB
-					if (activeTab.value === 'buttons') {
-						return (
-							<div class="flex flex-col gap-6">
-								{/* Button Styles Matrix */}
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Button Variants & Micro-Interactions</h3>
-									<div class="flex flex-wrap items-center gap-3">
-										<button
-											type="button"
-											onClick={() => clickCount.value++}
-											class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-600/25 transition-all cursor-pointer"
-										>
-											Primary Solid (Click +1)
-										</button>
-										<button
-											type="button"
-											onClick={() => clickCount.value += 10}
-											class="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 active:scale-95 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
-										>
-											Gradient Boost (+10)
-										</button>
-										<button
-											type="button"
-											onClick={() => clickCount.value = 0}
-											class="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-sm rounded-xl shadow-lg shadow-rose-600/25 transition-all cursor-pointer"
-										>
-											Danger Reset
-										</button>
-										<button
-											type="button"
-											class="px-5 py-2.5 bg-transparent hover:bg-slate-800 border border-slate-700 text-slate-300 font-bold text-sm rounded-xl transition-all cursor-pointer"
-										>
-											Outline Button
-										</button>
-										<button
-											type="button"
-											disabled
-											class="px-5 py-2.5 bg-slate-800 text-slate-500 border border-slate-800 font-bold text-sm rounded-xl opacity-50 cursor-not-allowed"
-										>
-											Disabled State
-										</button>
-									</div>
-								</div>
-
-								{/* Reactive Counter Display */}
-								<div class="p-6 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950/40 border border-slate-800 flex items-center justify-between">
-									<div class="flex items-center gap-4">
-										<div class="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-black text-xl border border-indigo-500/30">
-											#
-										</div>
-										<div>
-											<div class="text-sm font-bold text-white">Total Click Counter Signal</div>
-											<div class="text-xs text-slate-400">Updates live through fine-grained reactive closures</div>
-										</div>
-									</div>
-									<div class="text-3xl font-black text-indigo-400 font-mono">
-										{() => clickCount.value}
-									</div>
-								</div>
-
-								{/* Toggle Switches */}
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Toggle Switches & Binary Signals</h3>
-									<div class="flex flex-col md:flex-row gap-4">
-										{/* Toggle 1 */}
-										<div
-											onClick={() => toggleState.value = !toggleState.value}
-											class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4 cursor-pointer hover:border-slate-700 transition-all flex-1"
-										>
-											<div class="text-xs font-semibold text-slate-300">
-												Auto-Compile CSS: <span class={() => toggleState.value ? 'text-emerald-400 font-bold' : 'text-slate-500'}>{() => toggleState.value ? 'ENABLED' : 'PAUSED'}</span>
-											</div>
-											<div class={() => `w-12 h-6 rounded-full p-1 transition-all ${toggleState.value ? 'bg-emerald-500' : 'bg-slate-700'}`}>
-												<div class={() => `w-4 h-4 rounded-full bg-white transition-all transform ${toggleState.value ? 'translate-x-6' : 'translate-x-0'}`}></div>
-											</div>
-										</div>
-
-										{/* Toggle 2 */}
-										<div
-											onClick={() => switchState.value = !switchState.value}
-											class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4 cursor-pointer hover:border-slate-700 transition-all flex-1"
-										>
-											<div class="text-xs font-semibold text-slate-300">
-												Minification Engine: <span class={() => switchState.value ? 'text-indigo-400 font-bold' : 'text-slate-500'}>{() => switchState.value ? 'ACTIVE' : 'OFF'}</span>
-											</div>
-											<div class={() => `w-12 h-6 rounded-full p-1 transition-all ${switchState.value ? 'bg-indigo-600' : 'bg-slate-700'}`}>
-												<div class={() => `w-4 h-4 rounded-full bg-white transition-all transform ${switchState.value ? 'translate-x-6' : 'translate-x-0'}`}></div>
-											</div>
-										</div>
-									</div>
-								</div>
-							</div>
-						);
-					}
-
-					// 5. FORMS & INPUTS TAB
-					if (activeTab.value === 'forms') {
-						return (
-							<div class="flex flex-col gap-6">
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-5">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Form Controls with Focus Rings</h3>
-
-									<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-										<div class="flex flex-col gap-1.5">
-											<label class="text-xs font-bold text-slate-300">Search Utility Classes</label>
-											<input
-												type="text"
-												placeholder="e.g. flex, p-4, bg-indigo-500..."
-												value={() => searchQuery.value}
-												onInput={(e: any) => searchQuery.value = e.target.value}
-												class="px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
-											/>
-										</div>
-
-										<div class="flex flex-col gap-1.5">
-											<label class="text-xs font-bold text-slate-300">Select Compiler Target</label>
-											<select class="px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer">
-												<option>Tailwind CSS v4 (Standard)</option>
-												<option>Tailwind CSS v3 (Legacy Preflight)</option>
-												<option>Custom PostCSS Pipeline</option>
-											</select>
+						// 5. BADGES & PILLS TAB
+						if (activeTab.value === 'badges') {
+							return (
+								<div class="flex flex-col gap-8">
+									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col gap-6 shadow-xl">
+										<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Status & Semantic Badges</h3>
+										<div class="flex flex-wrap items-center gap-3">
+											<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 shadow-sm">
+												<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+												Success Active
+											</span>
+											<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/25 shadow-sm">
+												<span class="w-2 h-2 rounded-full bg-amber-400"></span>
+												Warning Paused
+											</span>
+											<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/25 shadow-sm">
+												<span class="w-2 h-2 rounded-full bg-rose-400"></span>
+												Error Failed
+											</span>
+											<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/25 shadow-sm">
+												<span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
+												Syncing Live
+											</span>
+											<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/25 shadow-sm">
+												<span class="w-2 h-2 rounded-full bg-purple-400"></span>
+												VIP Enterprise
+											</span>
 										</div>
 									</div>
 
-									<div class="flex flex-col gap-1.5">
-										<label class="text-xs font-bold text-slate-300">Custom CSS Code Block</label>
-										<textarea
-											rows={3}
-											placeholder="@tailwind base;\n@tailwind utilities;"
-											class="px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-indigo-300 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-										></textarea>
-									</div>
-
-									<div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
-										<span>Input Value Live Signal:</span>
-										<span class="font-mono text-indigo-400">{() => searchQuery.value || '(empty search)'}</span>
-									</div>
-								</div>
-							</div>
-						);
-					}
-
-					// 6. COLOR PALETTE TAB
-					if (activeTab.value === 'palette') {
-						return (
-							<div class="flex flex-col gap-6">
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<div class="flex items-center justify-between">
-										<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">22 Complete Tailwind Palettes (50 - 950)</h3>
-										<div class="flex gap-2">
-											{Object.keys(colorPalettes).map(colorKey => (
+									{/* Interactive Category Badges */}
+									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col gap-6 shadow-xl">
+										<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Interactive Filter Badges</h3>
+										<div class="flex flex-wrap items-center gap-3">
+											{categories.map(c => (
 												<button
 													type="button"
-													key={colorKey}
-													onClick={() => activeColor.value = colorKey}
-													class={() => `px-3 py-1 text-xs font-bold rounded-lg capitalize transition-all cursor-pointer ${
-														activeColor.value === colorKey
-															? 'bg-slate-100 text-slate-900 shadow-md font-black'
-															: 'bg-slate-800 text-slate-400 hover:text-white'
+													key={c.id}
+													onClick={() => selectedCategory.value = c.id}
+													class={() => `px-4 py-2 text-xs font-semibold rounded-xl transition-all duration-150 cursor-pointer border select-none outline-none ${
+														selectedCategory.value === c.id
+															? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/25'
+															: 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700'
 													}`}
 												>
-													{colorKey}
+													{c.label}
 												</button>
 											))}
 										</div>
 									</div>
-
-									{/* Color Swatch Bars */}
-									<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mt-2">
-										{() => {
-											const currentList = colorPalettes[activeColor.value] || colorPalettes.indigo;
-											return currentList.map(item => (
-												<div key={item.name} class={`p-4 rounded-2xl ${item.bg} ${item.text} flex flex-col justify-between h-28 shadow-md`}>
-													<div class="font-black text-sm">{item.name}</div>
-													<div class="font-mono text-xs opacity-90">{item.hex}</div>
-												</div>
-											));
-										}}
-									</div>
 								</div>
+							);
+						}
 
-								{/* Opacity Slash Syntax */}
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Color Opacity Modifiers (Slash Syntax)</h3>
-									<div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-										<div class="p-4 rounded-xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-300 text-xs font-mono text-center">
-											bg-indigo-600/10
+						// 6. FORMS & INPUTS TAB
+						if (activeTab.value === 'forms') {
+							return (
+								<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col gap-6 shadow-xl max-w-2xl">
+									<h3 class="text-base font-bold text-white">Form Inputs & Interactive Controls</h3>
+									<div class="flex flex-col gap-5">
+										<div>
+											<label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+												Search Query Signal
+											</label>
+											<input
+												type="text"
+												value={() => searchQuery.value}
+												onInput={(e: any) => searchQuery.value = e.target.value}
+												placeholder="Type anything to test two-way signal binding..."
+												class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-500"
+											/>
 										</div>
-										<div class="p-4 rounded-xl bg-indigo-600/25 border border-indigo-500/30 text-indigo-200 text-xs font-mono text-center">
-											bg-indigo-600/25
-										</div>
-										<div class="p-4 rounded-xl bg-indigo-600/50 border border-indigo-500/40 text-white text-xs font-mono text-center">
-											bg-indigo-600/50
-										</div>
-										<div class="p-4 rounded-xl bg-indigo-600/75 text-white text-xs font-mono text-center">
-											bg-indigo-600/75
-										</div>
-										<div class="p-4 rounded-xl bg-indigo-600 text-white text-xs font-mono text-center shadow-lg shadow-indigo-600/30">
-											bg-indigo-600 (100%)
+
+										<div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs text-slate-300">
+											<span>Live Input Value:</span>
+											<span class="px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-400 font-bold font-mono">
+												{() => searchQuery.value || '(Empty)'}
+											</span>
 										</div>
 									</div>
 								</div>
-							</div>
-						);
-					}
+							);
+						}
 
-					// 7. GRID & FLEX TAB
-					if (activeTab.value === 'layout') {
-						return (
-							<div class="flex flex-col gap-6">
-								{/* Responsive Grid Demo */}
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Responsive Grid Layout (grid-cols-1 md:grid-cols-2 lg:grid-cols-4)</h3>
-									<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-										{[1, 2, 3, 4].map(n => (
-											<div key={n} class="p-6 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center font-bold text-indigo-400 text-sm shadow-inner">
-												Col Span {n}
+						// 7. 22 COLOR PALETTES TAB
+						if (activeTab.value === 'palette') {
+							return (
+								<div class="flex flex-col gap-8">
+									<div class="flex items-center gap-2 overflow-x-auto pb-3">
+										{Object.keys(colorPalettes).map(color => (
+											<button
+												type="button"
+												key={color}
+												onClick={() => activeColor.value = color}
+												class={() => `px-4 py-2 text-xs font-semibold rounded-xl capitalize transition-all duration-150 cursor-pointer border select-none outline-none ${
+													activeColor.value === color
+														? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/25'
+														: 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white'
+												}`}
+											>
+												{color}
+											</button>
+										))}
+									</div>
+
+									<div class="grid grid-cols-2 md:grid-cols-6 gap-4">
+										{colorPalettes[activeColor.value]?.map(item => (
+											<div key={item.name} class={`p-4 rounded-2xl ${item.bg} ${item.text} flex flex-col justify-between h-24 shadow-md`}>
+												<div class="text-xs font-bold">{item.name}</div>
+												<div class="text-xs font-mono">{item.hex}</div>
 											</div>
 										))}
 									</div>
 								</div>
+							);
+						}
 
-								{/* Flexbox Alignments Demo */}
-								<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-4">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Flexbox Justify & Align</h3>
-									<div class="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2">
-										<div class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold">justify-between 1</div>
-										<div class="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-bold">justify-between 2</div>
-										<div class="px-3 py-1.5 rounded-lg bg-pink-600 text-white text-xs font-bold">justify-between 3</div>
-									</div>
+						// 8. FLEX & GRID LAYOUT TAB
+						if (activeTab.value === 'layout') {
+							return (
+								<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+									{[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+										<div class="p-8 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex items-center justify-center font-mono font-bold text-indigo-400 text-xl shadow-lg">
+											Grid Item {i}
+										</div>
+									))}
 								</div>
-							</div>
-						);
-					}
+							);
+						}
 
-					// 8. ANIMATIONS TAB
-					return (
-						<div class="flex flex-col gap-6">
-							<div class="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col gap-5">
-								<div class="flex items-center justify-between">
-									<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Animation Keyframe Showcase</h3>
-									<div class="flex gap-2">
-										{(['spin', 'ping', 'pulse', 'bounce'] as const).map(anim => (
+						// 9. ANIMATIONS TAB
+						if (activeTab.value === 'animations') {
+							return (
+								<div class="p-10 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col items-center justify-center gap-8 shadow-xl">
+									<div class="flex items-center gap-3">
+										{(['spin', 'ping', 'pulse', 'bounce'] as const).map(a => (
 											<button
 												type="button"
-												key={anim}
-												onClick={() => animationType.value = anim}
-												class={() => `px-3 py-1 text-xs font-bold rounded-lg uppercase transition-all cursor-pointer ${
-													animationType.value === anim
-														? 'bg-indigo-600 text-white shadow-md'
-														: 'bg-slate-800 text-slate-400 hover:text-white'
+												key={a}
+												onClick={() => animationType.value = a}
+												class={() => `px-4 py-2 text-xs font-semibold rounded-xl capitalize transition-all duration-150 cursor-pointer border select-none outline-none ${
+													animationType.value === a
+														? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/25'
+														: 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white'
 												}`}
 											>
-												{anim}
+												animate-{a}
 											</button>
 										))}
 									</div>
-								</div>
 
-								<div class="p-12 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center gap-8">
-									<div class={() => `w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-2xl shadow-xl shadow-indigo-500/30 ${
-										animationType.value === 'spin' ? 'animate-spin' :
-										animationType.value === 'ping' ? 'animate-ping' :
-										animationType.value === 'pulse' ? 'animate-pulse' : 'animate-bounce'
-									}`}>
-										⚡
+									<div class="w-20 h-20 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-3xl shadow-xl shadow-indigo-500/25">
+										<span class={() => `animate-${animationType.value}`}>⚡</span>
 									</div>
 								</div>
+							);
+						}
 
-								<div class="text-center text-xs text-slate-400 font-mono">
-									Active Class: <strong class="text-indigo-400">animate-{() => animationType.value}</strong>
-								</div>
-							</div>
-						</div>
-					);
-				}}
-			</section>
+						return null;
+					}}
+				</section>
+			</div>
 		</main>
 	);
 }
+
+export default TailwindShowcase;
