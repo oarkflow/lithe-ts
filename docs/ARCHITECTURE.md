@@ -64,6 +64,10 @@ The client renderer has three native fast paths:
 
 Components remain small VNode boundaries. `For` retains keyed rows and moves their existing nodes; `Index` retains row positions and updates item signals.
 
+Component functions are setup boundaries, not rerender units. After a component is mounted, a signal/state write reruns only the exact reactive binding effects that read that value: text bindings, attribute/property bindings, control-flow regions, list rows, or explicit effects. It must not re-invoke unrelated component functions, rebuild parent VNode trees, or replace stable DOM nodes just because state changed.
+
+The renderer is allowed to replace a dynamic region only when that region's returned node shape changes, such as switching between fallback/content branches or changing filtered list membership. Stable text/property/attribute bindings update in place.
+
 Hydration claims existing DOM where possible. Resume mode can reconnect named text/attribute bindings and delegated importable event symbols directly to server-rendered markup.
 
 ## Event-level loading

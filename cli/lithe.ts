@@ -1,4 +1,12 @@
 #!/usr/bin/env -S node --experimental-strip-types
+if (typeof process !== 'undefined' && typeof process.emitWarning === 'function') {
+	const origEmitWarning = process.emitWarning;
+	process.emitWarning = function (warning, ...args) {
+		if (typeof warning === 'string' && warning.includes('stripTypeScriptTypes')) return;
+		if (warning && typeof warning === 'object' && typeof warning.message === 'string' && warning.message.includes('stripTypeScriptTypes')) return;
+		return origEmitWarning.apply(process, [warning, ...args]);
+	};
+}
 import path from 'node:path';
 import { devServer } from '../tools/dev-server.ts';
 import { buildProject } from '../tools/build.ts';

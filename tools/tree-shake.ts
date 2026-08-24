@@ -43,6 +43,7 @@ function statementEnd(code: string, start: number): number {
 
 function refs(code: string, name: string, start: number, end: number): number {
 	const rest = code.slice(0, start) + '\n' + code.slice(end);
+	if (!new RegExp(`\\b${name}\\b`).test(rest)) return 0;
 	try {
 		const tokens = tokenizeJavaScript(rest);
 		let count = 0;

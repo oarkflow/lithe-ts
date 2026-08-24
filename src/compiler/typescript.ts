@@ -1,5 +1,14 @@
 import { stripTypeScriptTypes } from 'node:module';
 
+if (typeof process !== 'undefined' && typeof process.emitWarning === 'function') {
+  const origEmitWarning = process.emitWarning;
+  process.emitWarning = function (warning, ...args) {
+    if (typeof warning === 'string' && warning.includes('stripTypeScriptTypes')) return;
+    if (warning && typeof warning === 'object' && typeof warning.message === 'string' && warning.message.includes('stripTypeScriptTypes')) return;
+    return origEmitWarning.apply(process, [warning, ...args]);
+  };
+}
+
 // Node >=22 ships a native TypeScript syntax transformer. Lithe uses it first and
 // retains a conservative fallback for environments/builds where a particular
 // syntax form is not accepted (notably raw TSX, which Lithe transforms before this stage).
