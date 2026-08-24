@@ -59,10 +59,12 @@ test('litheTailwindPlugin compiles utility classes and injects style tags', asyn
 	const plugin = litheTailwindPlugin();
 	assert.equal(plugin.name, 'lithe-tailwind-plugin');
 
-	const compiled = await compileTailwind('.btn { @apply font-bold; }');
+	const compiled = await compileTailwind('@tailwind utilities;', { projectRoot: process.cwd() });
 	assert.ok(typeof compiled === 'string');
+	assert.ok(compiled.includes('.p-6') || compiled.includes('display: flex'));
 
 	const html = plugin.transformIndexHtml('<html><head><title>App</title></head><body></body></html>', '.test { color: red; }');
 	assert.ok(html.includes('<style data-lithe-tailwind>'));
 	assert.ok(html.includes('.test { color: red; }'));
 });
+

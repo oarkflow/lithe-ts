@@ -13,6 +13,7 @@ import { eliminateDeadBranches, minifyJS } from './minify.ts';
 import { splitServerImports, serverModuleId } from './server-split.ts';
 import { splitInlineServerFunctions, removeUnusedServerReferences } from './server-placement.ts';
 import { collectUsedExports, treeShakeModule } from './tree-shake.ts';
+import { compileTailwind } from '../src/plugins/tailwind.ts';
 
 const importRE = /(?:import|export)\s+(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"]/g;
 const dynamicImportRE = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
@@ -216,10 +217,12 @@ export async function buildProject(projectDir, options = {}) {
 	if (entryModules.size) { for (const file of (await walk(path.join(out, 'src'))).filter(f => /\.js(?:\.map)?$/.test(f))) { const rel = 'src/' + path.relative(path.join(out, 'src'), file).replace(/\\/g, '/').replace(/\.map$/, ''); if (!reachable.has(rel)) await fs.rm(file, { force: true }); } for (const key of Object.keys(moduleGraph)) if (key.startsWith('src/') && !reachable.has(key)) delete moduleGraph[key]; const eventDir = path.join(out, '__lithe_events'); if (await exists(eventDir)) for (const file of (await walk(eventDir)).filter(f => /\.js(?:\.map)?$/.test(f))) { const rel = '__lithe_events/' + path.relative(eventDir, file).replace(/\\/g, '/').replace(/\.map$/, ''); if (!reachable.has(rel)) await fs.rm(file, { force: true }); } for (const key of Object.keys(moduleGraph)) if ((key.startsWith('src/') || key.startsWith('__lithe_events/')) && !reachable.has(key)) delete moduleGraph[key]; }
 	const treeShaken = { removed: [], modules: 0 }; if (config.symbolTreeShaking !== false) { const jsFiles = (await walk(out)).filter(f => f.endsWith('.js')), moduleCode = new Map(); for (const f of jsFiles) moduleCode.set(path.relative(out, f).replace(/\\/g, '/'), await fs.readFile(f, 'utf8')); const used = collectUsedExports(moduleCode, [...entryModules]); for (const [rel, originalCode] of moduleCode) { const clean = originalCode.replace(/\n?\/\/# sourceMappingURL=.*?\n?$/, '\n'), shaken = treeShakeModule(clean, used.get(rel) || new Set(), { entry: entryModules.has(rel) }); if (shaken.code === clean) continue; const syntax = validateJavaScript(shaken.code, { filename: rel, maxErrors: 2 }); if (!syntax.valid) continue; const file = path.join(out, rel); let final = shaken.code; treeShaken.modules++; treeShaken.removed.push(...shaken.removed.map(name => `${rel}:${name}`)); if (sourceMaps) { let original = ''; if (rel.startsWith('__lithe/')) { const sourceFile = await frameworkSourceFor(rel.slice('__lithe/'.length)); if (sourceFile) original = await fs.readFile(sourceFile, 'utf8'); } else if (rel.startsWith('src/')) { const base = path.join(sourceDir, rel.slice(4).replace(/\.js$/, '')); for (const ext of ['.js', '.jsx', '.ts', '.tsx']) if (await exists(base + ext)) { original = await fs.readFile(base + ext, 'utf8'); break; } } if (original) { const mapFile = `${file}.map`; await fs.writeFile(mapFile, JSON.stringify(tracedSourceMap(final, original, rel, rel))); final = appendSourceMap(final, mapFile); } } await fs.writeFile(file, final); } }
 	report(5, 'Compiling & tree-shaking stylesheets');
+	const twCSS = await compileTailwind('', { projectRoot: root });
+	if (twCSS) css.push(twCSS);
 	// FEAT-1: CSS tree shaking — after JS symbol tree-shaking, collect class names still present
 	// in the surviving JS output and strip orphan CSS rules from the extracted CSS chunks.
-	if (rawCSSChunks.length) {
-		let finalCSS = rawCSSChunks.join('\n');
+	if (css.length) {
+		let finalCSS = css.join('\n');
 		if (config.cssTreeShaking !== false) {
 			const finalJSFiles = new Map<string, string>();
 			for (const f of (await walk(out)).filter(f => f.endsWith('.js'))) finalJSFiles.set(path.relative(out, f), await fs.readFile(f, 'utf8'));
