@@ -21,6 +21,7 @@ import { createDevtools } from '../src/devtools/devtools.ts';
 import { createScope } from '../src/core/owner.ts';
 import { installDelegatedEvents, setDelegatedEvent } from '../src/dom/events.ts';
 import { __setAttribute } from '../src/dom/dom.ts';
+import { capturedEventSymbol } from '../src/dom/event-symbol.ts';
 import { QueryClient, createStoragePersister, mutation } from '../src/data/query.ts';
 import { checkProject } from '../tools/check.ts';
 import { createMemoryStorage } from '../src/offline/storage.ts';
@@ -75,6 +76,28 @@ test('prerender command writes route HTML without dependencies', async () => { c
 test('devtools exposes component metadata and debugger snapshots', () => { const tools = createDevtools(); const scope = createScope(() => 42, { name: 'DebugComponent' }); try { assert.ok(tools.components().some(x => x.name === 'DebugComponent')); tools.debugger.pause(); assert.equal(globalThis.__LITHE_DEBUG_PAUSED__, true); assert.ok(tools.debugger.snapshot().components.some(x => x.name === 'DebugComponent')); tools.debugger.resume(); } finally { scope.dispose(); tools.dispose(); } });
 
 test('delegated events expose the matched element as currentTarget', () => { const listeners = new Map(); const root = { parentNode: null, addEventListener(type, fn) { listeners.set(type, fn); }, removeEventListener() { } }; const input = { parentNode: root }; let current; installDelegatedEvents(root, ['change']); setDelegatedEvent(input, 'onChange', event => { current = event.currentTarget; }); listeners.get('change')({ target: input, cancelBubble: false }); assert.equal(current, input); });
+
+test('delegated events keep currentTarget stable across async handlers', async () => {
+	const listeners = new Map();
+	const root = { parentNode: null, addEventListener(type, fn) { listeners.set(type, fn); }, removeEventListener() { } };
+	const input = { parentNode: root };
+	let current;
+	installDelegatedEvents(root, ['change']);
+	setDelegatedEvent(input, 'onChange', async event => {
+		await Promise.resolve();
+		current = event.currentTarget;
+	});
+	listeners.get('change')({ target: input, cancelBubble: false });
+	await Promise.resolve();
+	assert.equal(current, input);
+});
+
+test('captured lazy events preserve live functions and expose serializable snapshots', () => {
+	const onToggle = (id: string) => id;
+	const symbol = capturedEventSymbol('/event.js', 'handler', { onToggle, todo: { id: '1', done: false } });
+	assert.equal(symbol.captures.onToggle, onToggle);
+	assert.deepEqual(symbol.snapshot, { todo: { id: '1', done: false } });
+});
 
 test('DOM attributes follow HTML names and reject unsafe URLs', () => { const attrs = new Map(); const element = { setAttribute(key, value) { attrs.set(key, value); }, removeAttribute(key) { attrs.delete(key); } }; __setAttribute(element, 'className', 'active'); __setAttribute(element, 'htmlFor', 'title'); __setAttribute(element, 'href', 'javascript:alert(1)'); assert.equal(attrs.get('class'), 'active'); assert.equal(attrs.get('for'), 'title'); assert.equal(attrs.has('href'), false); });
 

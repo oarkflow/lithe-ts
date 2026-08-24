@@ -22,8 +22,9 @@ export function installDelegatedEvents(root, eventTypes = ['click', 'input', 'ch
 			while (node && node !== root.parentNode) {
 				const handler = node[key];
 				if (handler) {
-					const delegatedEvent = new Proxy(event, { get(target, key) { if (key === 'currentTarget') return node; const value = Reflect.get(target, key, target); return typeof value === 'function' ? value.bind(target) : value; } });
-					handler.call(node, delegatedEvent);
+					const current = node;
+					const delegatedEvent = new Proxy(event, { get(target, key) { if (key === 'currentTarget') return current; const value = Reflect.get(target, key, target); return typeof value === 'function' ? value.bind(target) : value; } });
+					handler.call(current, delegatedEvent);
 					if (event.cancelBubble) break;
 				}
 				if (node === root) break;

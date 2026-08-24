@@ -191,7 +191,9 @@ export function __mountChild(parent: any, child: any, before: any, options: any)
     parent.insertBefore(end, before);
     let nodes: any[] = [];
     let scope: any = null;
+    let alive = true;
     const dispose = effect(() => {
+      if (!alive || !end.parentNode) return;
       const value = resolveValue(child);
       if ((typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') && nodes.length === 1 && nodes[0].nodeType === 3) {
         const text = String(value);
@@ -203,9 +205,16 @@ export function __mountChild(parent: any, child: any, before: any, options: any)
       const frag = document.createDocumentFragment();
       scope = createScope(() => __mountAny(frag, value, null, options));
       nodes = scope.value.nodes;
-      parent.insertBefore(frag, end);
+      const container = end.parentNode;
+      if (container) container.insertBefore(frag, end);
+      else {
+        scope.dispose();
+        scope = null;
+        nodes = [];
+      }
     }, { sync: true });
     onCleanup(() => {
+      alive = false;
       dispose();
       scope?.dispose();
       start.remove();

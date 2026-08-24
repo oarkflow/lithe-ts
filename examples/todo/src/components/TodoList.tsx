@@ -33,12 +33,16 @@ function TodoItem({
 		if (e.key === 'Escape') editing.active = false;
 	}
 
+	function handleToggle() {
+		onToggle(todo.id);
+	}
+
 	return <li class={() => `todo-item ${todo.done ? 'is-done' : ''}`}>
 		<label class="checkbox-container">
 			<input
 				type="checkbox"
 				checked={() => todo.done}
-				onChange={() => onToggle(todo.id)}
+				onChange={handleToggle}
 				aria-label={`Toggle ${todo.title}`}
 			/>
 			<span class="checkmark"></span>

@@ -88,7 +88,7 @@ export class Dependency {
   notify() {
     this.version++;
     if (this._subs) {
-      const arr = this._subs;
+      const arr = this._subs.slice();
       const len = arr.length;
       for (let i = 0; i < len; i++) {
         arr[i].markDirty(this);
@@ -335,7 +335,7 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     if (this._state === STATE_DIRTY) return;
     this._state = STATE_DIRTY;
     if (this._subs) {
-      const arr = this._subs;
+      const arr = this._subs.slice();
       const len = arr.length;
       for (let i = 0; i < len; i++) {
         arr[i].markDirty(this);

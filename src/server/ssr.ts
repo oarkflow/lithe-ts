@@ -8,7 +8,7 @@ const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input'
 const BOOL = new Set(['disabled', 'checked', 'selected', 'multiple', 'required', 'autofocus', 'hidden', 'open', 'readonly']);
 let boundarySeq = 0;
 function read(value, ctx) { const seen = new Set(); while (isSignal(value) || typeof value === 'function') { if (seen.has(value)) break; seen.add(value); if (isSignal(value)) { if (ctx?.resumeSignals && value.__litheName) ctx.resumeSignals[value.__litheName] = value.peek(); value = value.value; } else value = value(); } return value; }
-function eventAttr(name, raw) { if (raw?.__litheEventSymbol) { const event = name.slice(2).toLowerCase(), capture = raw.captures == null ? '' : ` data-lithe-cap-${escapeHTML(event)}="${escapeHTML(JSON.stringify(raw.captures))}"`; return ` data-lithe-on${escapeHTML(event)}="${escapeHTML(`${raw.module}#${raw.exportName}`)}"${capture}`; } return ''; }
+function eventAttr(name, raw) { if (raw?.__litheEventSymbol) { const event = name.slice(2).toLowerCase(), captures = raw.snapshot ?? raw.captures, capture = captures == null ? '' : ` data-lithe-cap-${escapeHTML(event)}="${escapeHTML(JSON.stringify(captures))}"`; return ` data-lithe-on${escapeHTML(event)}="${escapeHTML(`${raw.module}#${raw.exportName}`)}"${capture}`; } return ''; }
 function attr(name, raw, ctx) {
 	if (name === 'key' || name === 'ref' || name === 'children' || name.startsWith('bind:') || name === 'html') return '';
 	if (name.startsWith('on')) return eventAttr(name, raw);

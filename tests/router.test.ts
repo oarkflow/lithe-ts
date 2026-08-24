@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRouter, group } from '../src/router/router.ts';
+import { createRouter, group, lazyRoute } from '../src/router/router.ts';
 
 test('router matches static and parameter routes', () => {
 	const A = () => null, B = () => null;
@@ -27,4 +27,22 @@ test('router groups inherit middleware and preserve child paths', async () => {
 	const calls = []; const router = createRouter({ routes: [group([{ path: '/settings', load: () => { calls.push('load'); return 'ok'; } }], { middleware: [async (_ctx, next) => { calls.push('group'); return next(); }] })] });
 	assert.equal(await router.load(router.resolve('http://test/settings')), 'ok');
 	assert.deepEqual(calls, ['group', 'load']);
+});
+
+test('router navigation preloads lazy route components before committing', async () => {
+	let loaded = 0;
+	const Lazy = lazyRoute(async () => {
+		await new Promise(resolve => setTimeout(resolve, 5));
+		loaded++;
+		return { Page: () => null };
+	}, { exportName: 'Page' });
+	const router = createRouter({
+		initialURL: 'http://test/',
+		routes: [{ path: '/', component: () => null }, { path: '/lazy', component: Lazy }]
+	});
+
+	await router.navigate('/lazy');
+
+	assert.equal(loaded, 1);
+	assert.equal(router.path, '/lazy');
 });

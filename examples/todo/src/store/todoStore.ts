@@ -49,9 +49,10 @@ export const useTodoStore = createStore(
 			},
 
 			toggleTodo(id: string) {
-				set(state => ({
-					todos: state.todos.map(t => t.id === id ? { ...t, done: !t.done } : t)
-				}), 'todo/toggle');
+				set(state => {
+					const todo = state.todos.find(t => t.id === id);
+					if (todo) todo.done = !todo.done;
+				}, 'todo/toggle');
 			},
 
 			deleteTodo(id: string) {

@@ -29,6 +29,21 @@ test('repeated reads subscribe an observer only once', () => {
   assert.equal(explainSignal(value).subscribers.length,0);
 });
 
+test('multiple sync observers of one state property all update across repeated writes', () => {
+  const model=state({done:false});
+  let classDone=false, checked=false;
+  const stopClass=effect(()=>{classDone=model.done},{sync:true});
+  const stopChecked=effect(()=>{checked=model.done},{sync:true});
+  model.done=true;
+  assert.equal(classDone,true);
+  assert.equal(checked,true);
+  model.done=false;
+  assert.equal(classDone,false);
+  assert.equal(checked,false);
+  stopClass();
+  stopChecked();
+});
+
 test('signal and computed equality options control invalidation', () => {
   const point=signal({x:1},{equals:(a:any,b:any)=>a.x===b.x});
   let runs=0; const stop=effect(()=>{runs++; point.value;},{sync:true});

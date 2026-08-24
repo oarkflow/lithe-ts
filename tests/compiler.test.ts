@@ -27,6 +27,16 @@ test('compiled native templates preserve dynamic JSX child functions', () => {
 	assert.doesNotMatch(out, /\[\(\(\) => \(\(\) =>/);
 });
 
+test('captured event extraction ignores TypeScript as-assertion identifiers', () => {
+	const out = compileModule(`<input type="checkbox" onChange={(e: Event) => onToggle(todo.id, (e.currentTarget as HTMLInputElement).checked)} />`, { filename: 'TodoList.tsx', typescript: true });
+	assert.match(out.code, /capturedEventSymbol/);
+	assert.match(out.code, /\bonToggle\b/);
+	assert.match(out.code, /\btodo\b/);
+	assert.doesNotMatch(out.code, /\bas\b|HTMLInputElement/);
+	assert.equal(out.eventHandlers.length, 1);
+	assert.doesNotMatch(out.eventHandlers[0].code, /\bas\b|HTMLInputElement/);
+});
+
 test('semantic typecheck reports unsupported advanced TypeScript as warnings', () => {
 	const result = semanticTypecheck('type Maybe<T> = T extends string ? T : never; type K = keyof Maybe<string>;', { filename: 'advanced.ts' });
 	assert.equal(result.ok, true);

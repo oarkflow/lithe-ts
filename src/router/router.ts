@@ -126,10 +126,17 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
 		return data;
 	}
 
+	async function preloadResolved(target, traceId = null): Promise<void> {
+		for (const r of target.chain) {
+			await withCorrelation(traceId, () => (r.component as any)?.preload?.());
+			for (const component of Object.values(r.outlets || {})) await withCorrelation(traceId, () => (component as any)?.preload?.());
+		}
+	}
+
 	async function prefetch(to: RouteTo): Promise<unknown> {
 		const next = new URL(typeof to === 'string' ? to : to.to, currentURL.value); if (prefetchCache.has(next.href)) return prefetchCache.get(next.href);
 		const target = resolve(next);
-		const promise = (async () => { for (const r of target.chain) { await (r.component as any)?.preload?.(); for (const component of Object.values(r.outlets || {})) await (component as any)?.preload?.(); await r.preload?.({ params: target.params, query: target.query, search: target.search, url: target.url, route: r, target, traceId: newCorrelationId() }); } return loadResolved(target, newCorrelationId()); })();
+		const promise = (async () => { const traceId = newCorrelationId(); await preloadResolved(target, traceId); for (const r of target.chain) { await r.preload?.({ params: target.params, query: target.query, search: target.search, url: target.url, route: r, target, traceId }); } return loadResolved(target, traceId); })();
 		prefetchCache.set(next.href, promise); try { return await promise; } catch (error) { prefetchCache.delete(next.href); throw error; }
 	}
 
@@ -138,7 +145,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
 		if (typeof window !== 'undefined') scrollPositions.set(currentURL.value.href, { x: scrollX, y: scrollY });
 		navigation.value = { state: 'loading', to: next, error: null, data: navigation.peek?.()?.data, traceId };
 		try {
-			const data = prefetchCache.has(next.href) ? await prefetchCache.get(next.href) : await loadResolved(target, traceId);
+			const data = prefetchCache.has(next.href) ? await prefetchCache.get(next.href) : await Promise.all([preloadResolved(target, traceId), loadResolved(target, traceId)]).then(([, value]) => value);
 			const commit = () => {
 				if (typeof history !== 'undefined') { const fn = navOptions.replace ? history.replaceState : history.pushState; fn.call(history, navOptions.state || {}, '', next); }
 				withCorrelation(traceId, () => batch(() => { if (navOptions.modal || target.route?.intercept) backgroundURL.value = currentURL.value; else if (!navOptions.preserveBackground) backgroundURL.value = null; currentURL.value = next; navigation.value = { state: 'idle', to: null, error: null, data, traceId }; })); correlationEvent('navigation:end', { to: next.href }, traceId);
