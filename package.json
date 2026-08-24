@@ -32,11 +32,21 @@
 		".": "./src/runtime/index.ts",
 		"./core": "./src/core/index.ts",
 		"./dom": "./src/dom/index.ts",
+		"./jsx-runtime": "./src/dom/jsx-runtime.ts",
+		"./dom/jsx-runtime": "./src/dom/jsx-runtime.ts",
+		"./jsx-dev-runtime": "./src/dom/jsx-dev-runtime.ts",
+		"./dom/jsx-dev-runtime": "./src/dom/jsx-dev-runtime.ts",
 		"./forms": "./src/forms/index.ts",
 		"./router": "./src/router/index.ts",
 		"./i18n": "./src/i18n/index.ts",
 		"./style": "./src/style/index.ts",
 		"./server": "./src/server/index.ts",
-		"./devtools": "./src/devtools/index.ts"
+		"./devtools": "./src/devtools/index.ts",
+		"./compiler": "./src/compiler/index.ts",
+		"./plugins": "./src/plugins/index.ts",
+		"./vite": "./src/plugins/vite.ts",
+		"./rollup": "./src/plugins/rollup.ts",
+		"./babel": "./src/plugins/babel.ts",
+		"./tailwind": "./src/plugins/tailwind.ts"
 	}
 }

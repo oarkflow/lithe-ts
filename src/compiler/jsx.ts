@@ -9,7 +9,21 @@ const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input'
 function isIdentStart(ch) { return /[A-Za-z_$]/.test(ch); } function isIdentPart(ch) { return /[\w$.:-]/.test(ch); }
 function skipString(source, i) { const quote = source[i++]; while (i < source.length) { if (source[i] === '\\') { i += 2; continue; } if (source[i] === quote) return i + 1; i++; } return i; }
 function skipTemplate(source, i) { i++; while (i < source.length) { if (source[i] === '\\') { i += 2; continue; } if (source[i] === '`') return i + 1; if (source[i] === '$' && source[i + 1] === '{') { const expr = readBalanced(source, i + 1, '{', '}'); i = expr.end; continue; } i++; } return i; }
-function readBalanced(source, start, open, close) { let depth = 0, i = start; for (; i < source.length; i++) { const ch = source[i]; if (ch === '"' || ch === "'") { i = skipString(source, i) - 1; continue; } if (ch === '`') { i = skipTemplate(source, i) - 1; continue; } if (ch === '/' && source[i + 1] === '/') { i += 2; while (i < source.length && source[i] !== '\n') i++; continue; } if (ch === '/' && source[i + 1] === '*') { i += 2; while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++; i++; continue; } if (ch === open) depth++; else if (ch === close) { depth--; if (depth === 0) return { content: source.slice(start + 1, i), end: i + 1 }; } } throw new SyntaxError(`Unclosed ${open} expression`); }
+function skipRegex(source, i) { i++; while (i < source.length) { if (source[i] === '\\') { i += 2; continue; } if (source[i] === '[') { while (i < source.length && source[i] !== ']') { if (source[i] === '\\') i += 2; else i++; } } if (source[i] === '/') { i++; while (i < source.length && /[a-z]/i.test(source[i])) i++; return i; } i++; } return i; }
+function readBalanced(source, start, open, close) {
+	let depth = 0, i = start;
+	for (; i < source.length; i++) {
+		const ch = source[i];
+		if (ch === '"' || ch === "'") { i = skipString(source, i) - 1; continue; }
+		if (ch === '`') { i = skipTemplate(source, i) - 1; continue; }
+		if (ch === '/' && source[i + 1] === '/') { i += 2; while (i < source.length && source[i] !== '\n') i++; continue; }
+		if (ch === '/' && source[i + 1] === '*') { i += 2; while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++; i++; continue; }
+		if (ch === '/' && (i === 0 || /[=(,:[!&|?+\-*~^;{]/.test(source.slice(0, i).trim().slice(-1)))) { i = skipRegex(source, i) - 1; continue; }
+		if (ch === open) depth++;
+		else if (ch === close) { depth--; if (depth === 0) return { content: source.slice(start + 1, i), end: i + 1 }; }
+	}
+	throw new SyntaxError(`Unclosed ${open} expression`);
+}
 function parseName(source, state) { const start = state.i; while (state.i < source.length && isIdentPart(source[state.i])) state.i++; return source.slice(start, state.i); } function skipSpace(source, state) { while (/\s/.test(source[state.i])) state.i++; }
 function isNativeName(name) { return /^[a-z][\w:-]*$/.test(name); }
 function emitTag(name) { if (name === '') return 'Fragment'; if (isNativeName(name)) return JSON.stringify(name); return name; }

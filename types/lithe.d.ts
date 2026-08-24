@@ -21,6 +21,10 @@ declare module '@lithe/core' {
 	export function schedule<T>(task: () => T, priority?: Priority): any; export const scheduler: any; export function transition<T>(fn: () => T): T; export function flushSync(): void;
 	export function deviceProfile(): { memory: number | null; cores: number | null; saveData: boolean; connection: string; lowPower: boolean }; export function adaptivePriority(kind?: string): Priority | string; export function adaptiveSchedule<T>(task: () => T, kind?: string): any; export function batteryProfile(): Promise<{ supported: boolean; low: boolean; charging?: boolean; level?: number }>; export function initBatteryAdaptation(): Promise<any>; export function prefetchBudget(): { enabled: boolean; concurrency: number; distance: number }; export function createAdaptiveScheduler(options?: any): { schedule<T>(task: () => T, kind?: string): Promise<T>; readonly profile: any; readonly pending: number };
 	export function onMutation(listener: (event: any) => void): () => void; export function inspectReactiveGraph(): { nodes: any[]; edges: any[] }; export function serializeSignals(): Record<string, any>; export function restoreSignals(snapshot?: Record<string, any>): void; export function installSignalSnapshot(snapshot?: Record<string, any>): () => void; export function pendingSignals(): Record<string, any>; export function getNamedSignal(name: string): Signal<any> | undefined; export function serializeOwners(): any[]; export function restoreOwners(graph?: any[]): any[]; export function createDetachedOwner(snapshot: any, parent?: any): any; export function registerResumableComputation(meta: any): any; export function serializeComputations(): any[]; export function resumeComputations(list?: any[]): () => void; export function resumableEffect(name: string, symbol: { module: string; exportName?: string }, signals?: Array<string | Signal<any>>): () => void;
+	export class SignalImpl<T> { constructor(value: T, options?: any); value: T; peek(): T; update(fn: (value: T) => T): T; subscribe(fn: (value: T) => void, options?: any): () => void; toJSON(): T }
+	export class ComputedImpl<T> { constructor(fn: () => T, options?: any); readonly value: T; peek(): T; subscribe(fn: (value: T) => void): () => void; toJSON(): T }
+	export interface Dependency { _version: number }
+	export interface Observer { _flags: number; _depsVersion: number }
 }
 
 declare module '@lithe/dom' {
@@ -101,12 +105,15 @@ declare module '@lithe/runtime' { export * from '@lithe/core'; export * from '@l
 
 declare module '@lithe/compiler' {
 	export function transformJSX(source: string): string; export function compileModule(source: string, options?: any): any; export function stripTypeScript(source: string, options?: any): string; export function hasNativeTypeScriptTransform(): boolean; export function tokenizeJavaScript(source: string): any[]; export function validateJavaScript(source: string, options?: any): any; export function parseJavaScript(source: string, options?: any): any; export function collectTypeEnvironment(sources: string[]): Map<string, any>; export function semanticTypecheck(source: string, options?: any): any; export function parseType(text: string, env?: Map<string, any>): any; export function inferExpression(text: string, vars?: Map<string, any>, env?: Map<string, any>, functions?: Map<string, any>): any; export function isTypeAssignable(from: any, to: any, env?: Map<string, any>): boolean; export function formatType(type: any): string; export function reactiveGraphIR(code: string, file?: string): any; export function mergeReactiveGraphs(graphs: any[], options?: any): any; export function findReactiveCycles(graph: any): string[][]; export function optimizeReactiveGraph(graph: any): any; export function graphDiagnostics(graph: any): any[]; export function graphToDOT(graph: any): string; export function reactiveDiagnostics(code: string, file?: string): any[]; export function transformWorkerPlacement(code: string, options?: any): any; export function analyzeAccessibility(code: string, file?: string): any[]; export function detectIslands(code: string, file?: string): any[]; export function identitySourceMap(generated: string, source: string, filename?: string, generatedFile?: string): any; export function tracedSourceMap(generated: string, source: string, filename?: string, generatedFile?: string): any; export function customElementModule(options: any): string;
+	export function litheVitePlugin(options?: any): any; export function litheRollupPlugin(options?: any): any; export function litheBabelPlugin(api?: any, options?: any): any; export function litheTailwindPlugin(options?: any): any; export function compileTailwind(css: string, config?: any): Promise<string>;
 }
 
 declare module 'lithe-zero-framework' { export * from '@lithe/runtime'; }
 declare module 'lithe' { export * from '@lithe/runtime'; }
 declare module 'lithe/core' { export * from '@lithe/core'; }
 declare module 'lithe/dom' { export * from '@lithe/dom'; }
+declare module 'lithe/jsx-runtime' { export * from '@lithe/dom'; }
+declare module 'lithe/dom/jsx-runtime' { export * from '@lithe/dom'; }
 declare module 'lithe/router' { export * from '@lithe/router'; }
 declare module 'lithe/forms' { export * from '@lithe/forms'; }
 declare module 'lithe/data' { export * from '@lithe/data'; }
@@ -129,4 +136,137 @@ declare module 'lithe/animation' { export * from '@lithe/animation'; }
 declare module 'lithe/interop' { export * from '@lithe/interop'; }
 declare module 'lithe/devtools' { export * from '@lithe/devtools'; }
 declare module 'lithe/observability' { export * from '@lithe/observability'; }
+declare module '@lithe/plugins' {
+	export function litheVitePlugin(options?: any): any;
+	export function litheRollupPlugin(options?: any): any;
+	export function litheBabelPlugin(api?: any, options?: any): any;
+	export function litheTailwindPlugin(options?: any): any;
+	export function compileTailwind(css: string, config?: any): Promise<string>;
+}
+declare module 'lithe/plugins' { export * from '@lithe/plugins'; }
+declare module 'lithe/vite' {
+	import { litheVitePlugin } from '@lithe/plugins';
+	export default litheVitePlugin;
+	export { litheVitePlugin };
+}
+declare module 'lithe/rollup' {
+	import { litheRollupPlugin } from '@lithe/plugins';
+	export default litheRollupPlugin;
+	export { litheRollupPlugin };
+}
+declare module 'lithe/babel' {
+	import { litheBabelPlugin } from '@lithe/plugins';
+	export default litheBabelPlugin;
+	export { litheBabelPlugin };
+}
+declare module 'lithe/tailwind' {
+	import { litheTailwindPlugin, compileTailwind } from '@lithe/plugins';
+	export default litheTailwindPlugin;
+	export { litheTailwindPlugin, compileTailwind };
+}
+declare module 'lithe/jsx-runtime' {
+	export { jsx, jsxs, jsxDEV, Fragment } from '@lithe/dom';
+	export namespace JSX {
+		type Element = any;
+		interface ElementChildrenAttribute { children: {}; }
+		interface IntrinsicAttributes { key?: any; }
+		interface HTMLAttributes {
+			class?: string | (() => string) | any;
+			className?: string | (() => string) | any;
+			id?: string | (() => string);
+			style?: string | Record<string, any> | (() => any);
+			title?: string | (() => string);
+			hidden?: boolean | (() => boolean);
+			tabIndex?: number | (() => number);
+			role?: string;
+			type?: string;
+			value?: any;
+			placeholder?: string | (() => string);
+			disabled?: boolean | (() => boolean);
+			checked?: boolean | (() => boolean);
+			href?: string;
+			src?: string;
+			alt?: string;
+			target?: string;
+			rel?: string;
+			name?: string;
+			for?: string;
+			htmlFor?: string;
+			children?: any;
+			onClick?: any;
+			onInput?: any;
+			onChange?: any;
+			onSubmit?: any;
+			onKeyDown?: any;
+			onKeyUp?: any;
+			onFocus?: any;
+			onBlur?: any;
+			onMouseEnter?: any;
+			onMouseLeave?: any;
+			[key: string]: any;
+		}
+		interface IntrinsicElements {
+			[elemName: string]: HTMLAttributes;
+		}
+	}
+}
+declare module 'lithe/jsx-dev-runtime' {
+	export * from 'lithe/jsx-runtime';
+}
+declare module '@lithe/dom/jsx-runtime' {
+	export * from 'lithe/jsx-runtime';
+}
+declare module '@lithe/dom/jsx-dev-runtime' {
+	export * from 'lithe/jsx-runtime';
+}
+
+declare global {
+	namespace JSX {
+		type Element = any;
+		interface ElementChildrenAttribute {
+			children: {};
+		}
+		interface IntrinsicAttributes {
+			key?: any;
+		}
+		interface HTMLAttributes {
+			class?: string | (() => string) | any;
+			className?: string | (() => string) | any;
+			id?: string | (() => string);
+			style?: string | Record<string, any> | (() => any);
+			title?: string | (() => string);
+			hidden?: boolean | (() => boolean);
+			tabIndex?: number | (() => number);
+			role?: string;
+			type?: string;
+			value?: any;
+			placeholder?: string | (() => string);
+			disabled?: boolean | (() => boolean);
+			checked?: boolean | (() => boolean);
+			href?: string;
+			src?: string;
+			alt?: string;
+			target?: string;
+			rel?: string;
+			name?: string;
+			for?: string;
+			htmlFor?: string;
+			children?: any;
+			onClick?: any;
+			onInput?: any;
+			onChange?: any;
+			onSubmit?: any;
+			onKeyDown?: any;
+			onKeyUp?: any;
+			onFocus?: any;
+			onBlur?: any;
+			onMouseEnter?: any;
+			onMouseLeave?: any;
+			[key: string]: any;
+		}
+		interface IntrinsicElements {
+			[elemName: string]: HTMLAttributes;
+		}
+	}
+}
 

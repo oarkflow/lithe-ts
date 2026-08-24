@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "jsx": "preserve",
+    "jsxImportSource": "lithe",
+    "baseUrl": ".",
+    "paths": {
+      "lithe": ["../../types/lithe.d.ts", "../../src/index.ts"],
+      "lithe/*": ["../../types/lithe.d.ts", "../../src/*"],
+      "@lithe/*": ["../../types/lithe.d.ts", "../../src/*"]
+    },
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "../../types/**/*.d.ts"
+  ]
+}

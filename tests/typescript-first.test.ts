@@ -13,8 +13,8 @@ const authoredRoots=['src','tools','cli','tests','benchmarks'];
 
 test('repository has no authored JavaScript implementation files',async()=>{
   const offenders:string[]=[];
-  for(const dir of authoredRoots){for(const file of await walk(path.join(root,dir)))if(file.endsWith('.js'))offenders.push(path.relative(root,file));}
-  for(const file of await walk(path.join(root,'examples')))if(file.endsWith('.js')&&!file.includes(`${path.sep}dist${path.sep}`))offenders.push(path.relative(root,file));
+  for(const dir of authoredRoots){for(const file of await walk(path.join(root,dir)))if(file.endsWith('.js')&&!file.includes(`${path.sep}node_modules${path.sep}`))offenders.push(path.relative(root,file));}
+  for(const file of await walk(path.join(root,'examples')))if(file.endsWith('.js')&&!file.includes(`${path.sep}dist${path.sep}`)&&!file.includes(`${path.sep}node_modules${path.sep}`))offenders.push(path.relative(root,file));
   assert.deepEqual(offenders,[]);
 });
 

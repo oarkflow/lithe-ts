@@ -10,6 +10,7 @@ import { RemoteSync } from './views/RemoteSync.tsx';
 import { Stats } from './views/Stats.tsx';
 import { DevTools } from './views/DevTools.tsx';
 import { UniversalState } from './views/UniversalState.tsx';
+import { TailwindShowcase } from './views/TailwindShowcase.tsx';
 import { About } from './views/About.tsx';
 
 defineTheme({
@@ -38,6 +39,7 @@ function NavigationBar() {
 				<Link to="/projects" class="nav-tab">📁 Projects</Link>
 				<Link to="/remote" class="nav-tab">☁️ Remote</Link>
 				<Link to="/types" class="nav-tab">🧬 Data Types</Link>
+				<Link to="/tailwind" class="nav-tab">🎨 Tailwind</Link>
 				<Link to="/stats" class="nav-tab">📊 Stats</Link>
 				<Link to="/devtools" class="nav-tab">🛠️ DevTools</Link>
 				<Link to="/about" class="nav-tab">ℹ️ About</Link>
@@ -62,6 +64,7 @@ const router = createRouter({
 			{ path: '/projects', component: ProjectWorkspaces },
 			{ path: '/remote', component: RemoteSync },
 			{ path: '/types', component: UniversalState },
+			{ path: '/tailwind', component: TailwindShowcase },
 			{ path: '/stats', component: Stats },
 			{ path: '/devtools', component: DevTools },
 			{ path: '/about', component: About }

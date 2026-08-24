@@ -153,14 +153,59 @@ Only reachable Lithe runtime modules are copied into `dist/__lithe`.
 - `.server.*` and detected secret-tainted dependency chains are rejected from browser graphs
 - 5xx server errors hide internal details by default
 
-## Zero-dependency boundaries
+## Bundler & Toolchain Integrations (Vite, Rollup, Babel)
 
-Some capabilities intentionally use platform implementations rather than embedding another large implementation:
+Lithe includes official zero-dependency plugin adapters for third-party build systems and bundlers:
 
-- Node/V8 is the ECMAScript grammar authority; Lithe supplies structural AST/scope/IR analysis for its transformations.
-- Node 22 supplies the native TypeScript syntax transformer when available. Lithe also ships semantic framework checks and a fallback syntax stripper, but does not attempt to reproduce the entire TypeScript editor/language-service ecosystem.
-- AVIF/WebP transcoding uses browser-native decoders/canvas encoders when supported rather than bundling codecs.
-- React/Vue/Svelte bridges take their runtimes from the host application rather than making them dependencies.
-- Native/mobile rendering is exposed through a host-renderer protocol so platform drivers can be implemented independently.
+### Vite (`vite.config.ts`)
+```ts
+import { defineConfig } from 'vite';
+import { litheVitePlugin } from 'lithe/vite';
+
+export default defineConfig({
+  plugins: [
+    litheVitePlugin({
+      typescript: true,
+      sourceMap: true
+    })
+  ]
+});
+```
+
+### Rollup (`rollup.config.js`)
+```js
+import { litheRollupPlugin } from 'lithe/rollup';
+
+export default {
+  input: 'src/main.tsx',
+  output: { dir: 'dist', format: 'esm' },
+  plugins: [
+    litheRollupPlugin({ typescript: true })
+  ]
+};
+```
+
+### Babel (`.babelrc` or `babel.config.js`)
+```js
+import { litheBabelPlugin } from 'lithe/babel';
+
+export default {
+  plugins: [
+    [litheBabelPlugin, { runtimeImport: 'lithe/dom' }]
+  ]
+};
+```
+
+### Tailwind CSS Plugin (`lithe/tailwind`)
+Zero-runtime on-demand atomic CSS compiler and optimizer:
+```ts
+import { compileTailwind, litheTailwindPlugin } from 'lithe/tailwind';
+
+// Programmatic compilation
+const css = await compileTailwind([sourceCode]);
+
+// Or as a build plugin
+const plugin = litheTailwindPlugin();
+```
 
 See [`Tasks.md`](./Tasks.md) for the completed engineering ledger and [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for internals.

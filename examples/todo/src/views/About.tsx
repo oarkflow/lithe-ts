@@ -47,6 +47,10 @@ export function About() {
 					<strong>🌍 Internationalization (<code>createI18n</code>)</strong>:
 					Fast string dictionary interpolation.
 				</li>
+				<li>
+					<strong>🎨 Tailwind CSS Plugin (<code>lithe/tailwind</code>)</strong>:
+					Zero-runtime on-demand atomic utility compilation and theme integration.
+				</li>
 			</ul>
 		</Panel>
 	</main>;
