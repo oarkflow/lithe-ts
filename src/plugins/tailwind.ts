@@ -1312,12 +1312,35 @@ function generateUtilityBody(u: string): string | null {
 	if (name === 'backdrop-blur-3xl') return 'backdrop-filter: blur(64px); -webkit-backdrop-filter: blur(64px);';
 	if ((m = name.match(/^backdrop-blur-\[(.+)\]$/))) return `backdrop-filter: blur(${m[1].replace(/_/g, ' ')}); -webkit-backdrop-filter: blur(${m[1].replace(/_/g, ' ')});`;
 
+	if ((m = name.match(/^backdrop-brightness-(\d+)$/))) return `backdrop-filter: brightness(${Number(m[1]) / 100}); -webkit-backdrop-filter: brightness(${Number(m[1]) / 100});`;
+	if ((m = name.match(/^backdrop-contrast-(\d+)$/))) return `backdrop-filter: contrast(${Number(m[1]) / 100}); -webkit-backdrop-filter: contrast(${Number(m[1]) / 100});`;
+	if (name === 'backdrop-grayscale') return 'backdrop-filter: grayscale(100%); -webkit-backdrop-filter: grayscale(100%);';
+	if (name === 'backdrop-grayscale-0') return 'backdrop-filter: grayscale(0); -webkit-backdrop-filter: grayscale(0);';
+	if (name === 'backdrop-invert') return 'backdrop-filter: invert(100%); -webkit-backdrop-filter: invert(100%);';
+	if (name === 'backdrop-invert-0') return 'backdrop-filter: invert(0); -webkit-backdrop-filter: invert(0);';
+	if ((m = name.match(/^backdrop-opacity-(\d+)$/))) return `backdrop-filter: opacity(${Number(m[1]) / 100}); -webkit-backdrop-filter: opacity(${Number(m[1]) / 100});`;
+	if ((m = name.match(/^backdrop-saturate-(\d+)$/))) return `backdrop-filter: saturate(${Number(m[1]) / 100}); -webkit-backdrop-filter: saturate(${Number(m[1]) / 100});`;
+	if (name === 'backdrop-sepia') return 'backdrop-filter: sepia(100%); -webkit-backdrop-filter: sepia(100%);';
+	if (name === 'backdrop-sepia-0') return 'backdrop-filter: sepia(0); -webkit-backdrop-filter: sepia(0);';
+
 	if ((m = name.match(/^brightness-(\d+)$/))) return `filter: brightness(${Number(m[1]) / 100});`;
 	if ((m = name.match(/^contrast-(\d+)$/))) return `filter: contrast(${Number(m[1]) / 100});`;
 	if (name === 'grayscale') return 'filter: grayscale(100%);';
 	if (name === 'grayscale-0') return 'filter: grayscale(0);';
 	if (name === 'invert') return 'filter: invert(100%);';
 	if (name === 'invert-0') return 'filter: invert(0);';
+	if ((m = name.match(/^saturate-(\d+)$/))) return `filter: saturate(${Number(m[1]) / 100});`;
+	if (name === 'sepia') return 'filter: sepia(100%);';
+	if (name === 'sepia-0') return 'filter: sepia(0);';
+
+	if (name === 'drop-shadow-sm') return 'filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.05));';
+	if (name === 'drop-shadow') return 'filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.1)) drop-shadow(0 1px 1px rgb(0 0 0 / 0.06));';
+	if (name === 'drop-shadow-md') return 'filter: drop-shadow(0 4px 3px rgb(0 0 0 / 0.07)) drop-shadow(0 2px 2px rgb(0 0 0 / 0.06));';
+	if (name === 'drop-shadow-lg') return 'filter: drop-shadow(0 10px 8px rgb(0 0 0 / 0.04)) drop-shadow(0 4px 3px rgb(0 0 0 / 0.1));';
+	if (name === 'drop-shadow-xl') return 'filter: drop-shadow(0 20px 13px rgb(0 0 0 / 0.03)) drop-shadow(0 8px 5px rgb(0 0 0 / 0.08));';
+	if (name === 'drop-shadow-2xl') return 'filter: drop-shadow(0 25px 25px rgb(0 0 0 / 0.15));';
+	if (name === 'drop-shadow-none') return 'filter: drop-shadow(0 0 #0000);';
+	if ((m = name.match(/^drop-shadow-\[(.+)\]$/))) return `filter: drop-shadow(${m[1].replace(/_/g, ' ')});`;
 
 	// Transitions & Animations
 	if (name === 'transition-none') return 'transition-property: none;';
@@ -1401,7 +1424,7 @@ function generateUtilityBody(u: string): string | null {
 	return null;
 }
 
-function generateTailwindCSS(classes: Iterable<string>): string {
+export function generateTailwindCSS(classes: Iterable<string>): string {
 	const rulesByMedia: Record<string, string[]> = {
 		base: [],
 		dark: []
@@ -1457,14 +1480,21 @@ async function scanClassesInFiles(dir: string, scanned = new Set<string>()): Pro
 				}
 			} else if (/\.(?:tsx|ts|jsx|js|html)$/.test(entry.name)) {
 				const content = await fs.readFile(full, 'utf8');
-				// Tokenize all words in the file that could potentially be CSS classes
-				const tokens = content.split(/[^\w\-:.\/\[\]#%]+/);
+				// Scan all words and quoted tokens in the file
+				const tokens = content.split(/[\s"'{}`();<>]+|[^\w\-:.\/\[\]#%]+/);
 				for (const token of tokens) {
-					const t = token.trim();
+					const t = token.trim().replace(/^['"`]|['"`]$/g, '');
 					if (t && (t.includes('-') || t.includes(':') || t.includes('[') || SPACING[t] || ['flex', 'grid', 'block', 'hidden', 'relative', 'absolute', 'fixed', 'sticky', 'border', 'rounded', 'shadow', 'truncate', 'italic', 'uppercase', 'lowercase', 'capitalize', 'underline'].includes(t))) {
 						if (!t.startsWith('http') && !t.startsWith('/') && !t.includes('node_modules') && !t.includes('(') && !t.includes(')')) {
 							scanned.add(t);
 						}
+					}
+				}
+				// Safelist common blur variants when backdrop-blur is used
+				if (content.includes('backdrop-blur') || content.includes('glassBlur')) {
+					for (const b of ['none', 'sm', 'md', 'lg', 'xl', '2xl', '3xl']) {
+						scanned.add(`backdrop-blur-${b}`);
+						scanned.add(`blur-${b}`);
 					}
 				}
 			}

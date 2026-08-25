@@ -49,6 +49,73 @@ export function rewriteLocalJSX(code) {
 	return code.replace(/((?:from\s+|import\s*\()(['"])([^'"]+))\.(?:jsx|tsx|ts)(['"])/g, '$1.js$4');
 }
 
+export async function loadProjectAliases(projectRoot: string): Promise<Record<string, string>> {
+	const customAliases: Record<string, string> = {
+		'@': 'src',
+		'~': 'src',
+		'@components': 'src/components',
+		'@views': 'src/views',
+		'@context': 'src/context',
+		'@utils': 'src/utils',
+		'@store': 'src/store',
+		'@stores': 'src/stores',
+		'@services': 'src/services',
+		'@hooks': 'src/hooks',
+		'@lib': 'src/lib',
+		'@assets': 'src/assets'
+	};
+	try {
+		const configPath = path.join(projectRoot, 'lithe.config.json');
+		if (await exists(configPath)) {
+			const config = JSON.parse(await fs.readFile(configPath, 'utf8'));
+			const aliasCfg = config.resolve?.alias || config.alias;
+			if (aliasCfg) {
+				for (const [key, val] of Object.entries(aliasCfg)) {
+					const cleanKey = key.replace(/\/\*$/, '');
+					const cleanVal = String(val).replace(/\/\*$/, '').replace(/^\.\//, '');
+					customAliases[cleanKey] = cleanVal;
+				}
+			}
+		}
+	} catch {}
+	for (const tsConfigName of ['tsconfig.json', 'jsconfig.json']) {
+		try {
+			const tsPath = path.join(projectRoot, tsConfigName);
+			if (await exists(tsPath)) {
+				const raw = await fs.readFile(tsPath, 'utf8');
+				const json = JSON.parse(raw.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, ''));
+				const paths = json.compilerOptions?.paths;
+				if (paths) {
+					for (const [key, valList] of Object.entries(paths)) {
+						const cleanKey = key.replace(/\/\*$/, '');
+						const val = Array.isArray(valList) ? valList[0] : valList;
+						const cleanVal = String(val).replace(/\/\*$/, '').replace(/^\.\//, '');
+						customAliases[cleanKey] = cleanVal;
+					}
+				}
+			}
+		} catch {}
+	}
+	return customAliases;
+}
+
+export function rewritePathAliases(code: string, aliasMap: Record<string, string> = { '@': 'src', '~': 'src' }): string {
+	return code.replace(/((?:import|export)\s+(?:[^'";]+?\s+from\s+)?|import\s*\()\s*(['"])([^'"]+)\2/g, (full, lead, quote, spec) => {
+		for (const [aliasKey, targetDir] of Object.entries(aliasMap)) {
+			if (spec === aliasKey) {
+				const resolved = '/' + targetDir.replace(/^\/+/, '');
+				return `${lead}${quote}${resolved}${quote}`;
+			}
+			if (spec.startsWith(aliasKey + '/')) {
+				const remainder = spec.slice(aliasKey.length + 1);
+				const resolved = '/' + path.posix.join(targetDir.replace(/^\/+/, ''), remainder);
+				return `${lead}${quote}${resolved}${quote}`;
+			}
+		}
+		return full;
+	});
+}
+
 export function formatBytes(bytes: number): string {
 	if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes} bytes`;
 	const units = ['KB', 'MB', 'GB', 'TB'];
@@ -60,4 +127,5 @@ export function formatBytes(bytes: number): string {
 	}
 	return `${Number(val.toFixed(2))} ${units[unitIndex]}`;
 }
+
 

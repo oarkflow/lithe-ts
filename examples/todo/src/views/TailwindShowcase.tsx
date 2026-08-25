@@ -332,14 +332,19 @@ export function TailwindShowcase() {
 						if (activeTab.value === 'glass') {
 							return (
 								<div class="flex flex-col gap-8">
-									{/* Interactive Glass Controls */}
-									<div class="p-8 rounded-3xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
+									{/* Interactive Glass Controls with Live Blur Readout */}
+									<div class="p-8 rounded-3xl bg-slate-900/80 backdrop-blur-xl border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
 										<div>
-											<h3 class="text-base font-bold text-white">Interactive Glassmorphism Studio</h3>
-											<p class="text-xs text-slate-400 mt-0.5">Change backdrop blur strength to observe real-time glass diffusion over vibrant background mesh</p>
+											<div class="flex items-center gap-3">
+												<h3 class="text-lg font-bold text-white">Interactive Glassmorphism Studio</h3>
+												<span class="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 font-mono text-xs font-bold border border-indigo-500/30">
+													{() => `blur-${glassBlur.value}`}
+												</span>
+											</div>
+											<p class="text-xs text-slate-400 mt-1">Switch blur strength to observe real-time frosted glass diffusion over high-contrast colored elements below</p>
 										</div>
 										<div class="flex flex-wrap items-center gap-2">
-											{(['sm', 'md', 'lg', 'xl', '2xl'] as const).map(b => (
+											{(['none', 'sm', 'md', 'lg', 'xl', '2xl', '3xl'] as const).map(b => (
 												<button
 													type="button"
 													key={b}
@@ -356,50 +361,72 @@ export function TailwindShowcase() {
 										</div>
 									</div>
 
-									{/* 3 Glass Cards Over Colored Radial Gradient Backdrops with Generous Gaps */}
-									<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-										{/* Glass Card 1: White Frost */}
-										<div class="relative overflow-hidden p-8 rounded-3xl backdrop-blur-xl bg-white/10 border border-white/20 shadow-2xl flex flex-col justify-between gap-8">
-											<div class="w-14 h-14 rounded-2xl bg-white/15 border border-white/25 flex items-center justify-center text-2xl shadow-lg">
-												❄️
+									{/* Showcase Stage with High-Contrast Background Elements Directly Under Glass */}
+									<div class="relative overflow-hidden p-8 sm:p-12 rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl">
+										{/* Vibrant Colorful Shapes & Neon Text Placed Directly Behind the Glass Panes */}
+										<div class="absolute inset-0 overflow-hidden pointer-events-none">
+											<div class="absolute top-6 left-12 w-64 h-64 rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400 opacity-80"></div>
+											<div class="absolute -bottom-10 right-16 w-80 h-80 rounded-full bg-gradient-to-br from-indigo-500 via-purple-600 to-sky-400 opacity-75"></div>
+											<div class="absolute top-1/3 left-1/3 w-72 h-32 bg-gradient-to-r from-emerald-400 to-teal-500 rounded-2xl rotate-12 opacity-70"></div>
+											<div class="absolute bottom-12 left-1/4 text-5xl font-black text-white/40 tracking-widest uppercase font-mono select-none">
+												DIFFUSION MESH
 											</div>
-											<div>
-												<h4 class="text-lg font-bold text-white">White Frost Glass</h4>
-												<p class="text-xs text-slate-200 mt-1">Rendered with <code>backdrop-blur-xl bg-white/10 border-white/20</code></p>
-											</div>
-											<div class="flex items-center justify-between pt-4 border-t border-white/10 text-xs text-slate-200">
-												<span>Transmission:</span>
-												<span class="font-mono font-bold">92%</span>
+											<div class="absolute top-12 right-1/4 text-4xl font-black text-amber-300/50 uppercase font-mono select-none">
+												✦ VIBRANT GLOW ✦
 											</div>
 										</div>
 
-										{/* Glass Card 2: Indigo Prism */}
-										<div class="relative overflow-hidden p-8 rounded-3xl backdrop-blur-xl bg-indigo-950/40 border border-indigo-500/30 shadow-2xl flex flex-col justify-between gap-8">
-											<div class="w-14 h-14 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-2xl shadow-lg shadow-indigo-500/20">
-												💎
+										{/* 3 Glass Cards Over Vibrant High-Contrast Backdrop */}
+										<div class="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8">
+											{/* Glass Card 1: White Frost */}
+											<div class={() => `relative p-8 rounded-3xl backdrop-blur-${glassBlur.value} bg-white/10 border border-white/30 shadow-2xl flex flex-col justify-between gap-8 transition-all duration-200`}>
+												<div class="w-14 h-14 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center text-2xl shadow-lg">
+													❄️
+												</div>
+												<div>
+													<h4 class="text-lg font-bold text-white drop-shadow">White Frost Glass</h4>
+													<p class="text-xs text-slate-100 font-medium mt-1 drop-shadow">
+														Dynamic: <code class="px-1.5 py-0.5 rounded bg-black/40 text-amber-300 font-mono">{() => `backdrop-blur-${glassBlur.value}`}</code>
+													</p>
+												</div>
+												<div class="flex items-center justify-between pt-4 border-t border-white/20 text-xs text-slate-100 font-semibold">
+													<span>Diffusion:</span>
+													<span class="font-mono">{() => glassBlur.value === 'none' ? '0px (Sharp)' : glassBlur.value === 'sm' ? '4px' : glassBlur.value === 'md' ? '12px' : glassBlur.value === 'lg' ? '16px' : glassBlur.value === 'xl' ? '24px' : glassBlur.value === '2xl' ? '40px' : '64px (Heavy)'}</span>
+												</div>
 											</div>
-											<div>
-												<h4 class="text-lg font-bold text-white">Indigo Prism Glass</h4>
-												<p class="text-xs text-slate-300 mt-1">Rendered with <code>backdrop-blur-xl bg-indigo-950/40 border-indigo-500/30</code></p>
-											</div>
-											<div class="flex items-center justify-between pt-4 border-t border-indigo-500/20 text-xs text-indigo-300">
-												<span>Refraction Index:</span>
-												<span class="font-mono font-bold">1.52 (Crown Glass)</span>
-											</div>
-										</div>
 
-										{/* Glass Card 3: Deep Dark Obsidian */}
-										<div class="relative overflow-hidden p-8 rounded-3xl backdrop-blur-xl bg-slate-900/60 border border-slate-700/50 shadow-2xl flex flex-col justify-between gap-8">
-											<div class="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-600 flex items-center justify-center text-2xl shadow-lg">
-												🌌
+											{/* Glass Card 2: Indigo Prism */}
+											<div class={() => `relative p-8 rounded-3xl backdrop-blur-${glassBlur.value} bg-indigo-950/40 border border-indigo-400/40 shadow-2xl flex flex-col justify-between gap-8 transition-all duration-200`}>
+												<div class="w-14 h-14 rounded-2xl bg-indigo-500/30 border border-indigo-400/40 flex items-center justify-center text-2xl shadow-lg shadow-indigo-500/25">
+													💎
+												</div>
+												<div>
+													<h4 class="text-lg font-bold text-white drop-shadow">Indigo Prism Glass</h4>
+													<p class="text-xs text-indigo-100 font-medium mt-1 drop-shadow">
+														Dynamic: <code class="px-1.5 py-0.5 rounded bg-black/40 text-indigo-300 font-mono">{() => `backdrop-blur-${glassBlur.value}`}</code>
+													</p>
+												</div>
+												<div class="flex items-center justify-between pt-4 border-t border-indigo-400/30 text-xs text-indigo-200 font-semibold">
+													<span>Refraction:</span>
+													<span class="font-mono">1.52 (Crown Glass)</span>
+												</div>
 											</div>
-											<div>
-												<h4 class="text-lg font-bold text-white">Dark Obsidian Glass</h4>
-												<p class="text-xs text-slate-400 mt-1">Rendered with <code>backdrop-blur-xl bg-slate-900/60 border-slate-700/50</code></p>
-											</div>
-											<div class="flex items-center justify-between pt-4 border-t border-slate-800 text-xs text-slate-400">
-												<span>Contrast Ratio:</span>
-												<span class="font-mono font-bold text-emerald-400">14.8:1 AAA</span>
+
+											{/* Glass Card 3: Deep Dark Obsidian */}
+											<div class={() => `relative p-8 rounded-3xl backdrop-blur-${glassBlur.value} bg-slate-950/60 border border-slate-600/60 shadow-2xl flex flex-col justify-between gap-8 transition-all duration-200`}>
+												<div class="w-14 h-14 rounded-2xl bg-slate-800/80 border border-slate-500 flex items-center justify-center text-2xl shadow-lg">
+													🌌
+												</div>
+												<div>
+													<h4 class="text-lg font-bold text-white drop-shadow">Dark Obsidian Glass</h4>
+													<p class="text-xs text-slate-300 font-medium mt-1 drop-shadow">
+														Dynamic: <code class="px-1.5 py-0.5 rounded bg-black/40 text-emerald-300 font-mono">{() => `backdrop-blur-${glassBlur.value}`}</code>
+													</p>
+												</div>
+												<div class="flex items-center justify-between pt-4 border-t border-slate-700 text-xs text-slate-300 font-semibold">
+													<span>Contrast Ratio:</span>
+													<span class="font-mono text-emerald-400">14.8:1 AAA</span>
+												</div>
 											</div>
 										</div>
 									</div>

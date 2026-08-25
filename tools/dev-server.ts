@@ -4,7 +4,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { compileModule } from '../src/compiler/jsx.ts';
 import { compileTailwind, litheTailwindPlugin } from '../src/plugins/tailwind.ts';
-import { SRC_ROOT, exists, rewriteBareImports, rewriteLocalJSX, walk } from './shared.ts';
+import { SRC_ROOT, exists, rewriteBareImports, rewritePathAliases, loadProjectAliases, rewriteLocalJSX, walk } from './shared.ts';
 
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.jsx': 'text/javascript; charset=utf-8', '.ts': 'text/javascript; charset=utf-8', '.tsx': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon' };
 function safe(root, pathname) { const p = path.resolve(root, '.' + pathname); return p.startsWith(path.resolve(root)) ? p : null; }
@@ -32,14 +32,68 @@ async function watchTree(root, onChange) { const watchers = []; const dirs = new
 
 export async function devServer(projectDir, options = {}) {
 	const root = path.resolve(projectDir), publicDir = path.join(root, 'public'), port = Number(options.port ?? 3000), clients = new Set(), graph = new Map(), reverse = new Map();
+	const projectAliases = await loadProjectAliases(root);
 	function recordGraph(url, code) { const previous = graph.get(url) || []; for (const d of previous) { const set = reverse.get(d); set?.delete(url); } const list = deps(code).map(s => normalizeURL(s, url)).filter(s => s.startsWith('/')); graph.set(url, list); for (const d of list) { if (!reverse.has(d)) reverse.set(d, new Set()); reverse.get(d).add(url); } }
 	function invalidated(url) { const seen = new Set([url]), q = [url]; while (q.length) { const x = q.shift(); for (const p of reverse.get(x) || []) if (!seen.has(p)) { seen.add(p); q.push(p); } } return [...seen]; }
 	const server = http.createServer(async (req, res) => {
 		try {
 			const url = new URL(req.url, `http://${req.headers.host}`); if (url.pathname === '/__lithe_hmr') { res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive' }); res.write('\n'); clients.add(res); req.on('close', () => clients.delete(res)); return; } if (url.pathname === '/__lithe_hmr_client.js') { res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' }); res.end(HMR_CLIENT); return; }
 			if (url.pathname === '/tailwind.css' || url.pathname === '/__lithe_tailwind.css') { const tw = await compileTailwind('', { projectRoot: root }); res.writeHead(200, { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-store' }); res.end(tw); return; }
-			let file; if (url.pathname.startsWith('/__lithe/')) file = safe(SRC_ROOT, url.pathname.slice('/__lithe'.length)); else if (url.pathname.startsWith('/src/')) file = safe(root, url.pathname); else file = safe(publicDir, url.pathname === '/' ? '/index.html' : url.pathname); if (file) file = await resolveSource(file); if (!file || !await exists(file)) { file = path.join(publicDir, 'index.html'); if (!await exists(file)) { res.writeHead(404); res.end('Not Found'); return; } }
-			let data = await fs.readFile(file), ext = path.extname(file); if (ext === '.css') { let cssText = data.toString('utf8'); if (cssText.includes('@tailwind')) { cssText = await compileTailwind(cssText, { projectRoot: root }); data = Buffer.from(cssText); } } else if (/\.(?:js|jsx|ts|tsx)$/.test(ext)) { let code = data.toString('utf8'); if (/\.(?:jsx|tsx|ts)$/.test(ext)) code = compileModule(code, { runtimeImport: '@lithe/dom', typescript: /\.(?:ts|tsx)$/.test(ext), filename: path.relative(root, file), captureEvents: false }).code; code = rewriteLocalJSX(rewriteBareImports(code, '/__lithe/')); const moduleURL = url.pathname.replace(/\.(?:jsx|tsx|ts)$/i, '.js'); if (options.hmr !== false && moduleURL.startsWith('/src/')) code = `import.meta.hot = globalThis.__LITHE_HMR__?.createHotContext(${JSON.stringify(moduleURL)});\n` + code; recordGraph(moduleURL, code); data = Buffer.from(code); ext = '.js'; } else if (ext === '.html' && options.hmr !== false) { let html = data.toString('utf8'); const tw = await compileTailwind('', { projectRoot: root }); if (tw) html = litheTailwindPlugin().transformIndexHtml(html, tw); const client = '<script type="module" src="/__lithe_hmr_client.js"></script>'; html = html.includes('</head>') ? html.replace('</head>', `${client}</head>`) : html.replace('<body>', `${client}<body>`); data = Buffer.from(html); } res.writeHead(200, { 'content-type': types[ext] || 'application/octet-stream', 'cache-control': 'no-store' }); res.end(data);
+			let reqPath = url.pathname;
+			for (const [aliasKey, targetDir] of Object.entries(projectAliases)) {
+				if (reqPath === `/${aliasKey}` || reqPath.startsWith(`/${aliasKey}/`)) {
+					reqPath = '/' + path.posix.join(targetDir.replace(/^\/+/, ''), reqPath.slice(aliasKey.length + 1));
+					break;
+				}
+			}
+			let file;
+			if (reqPath.startsWith('/__lithe/')) file = safe(SRC_ROOT, reqPath.slice('/__lithe'.length));
+			else if (reqPath.startsWith('/src/')) file = safe(root, reqPath);
+			else file = safe(publicDir, reqPath === '/' ? '/index.html' : reqPath);
+			if (file) file = await resolveSource(file);
+			if (!file || !await exists(file)) {
+				file = path.join(publicDir, 'index.html');
+				if (!await exists(file)) {
+					res.writeHead(404);
+					res.end('Not Found');
+					return;
+				}
+			}
+			let data = await fs.readFile(file), ext = path.extname(file);
+			if (ext === '.css') {
+				let cssText = data.toString('utf8');
+				if (cssText.includes('@tailwind')) {
+					cssText = await compileTailwind(cssText, { projectRoot: root });
+					data = Buffer.from(cssText);
+				}
+			} else if (/\.(?:js|jsx|ts|tsx)$/.test(ext)) {
+				let code = data.toString('utf8');
+				if (/\.(?:jsx|tsx|ts)$/.test(ext)) {
+					code = compileModule(code, {
+						runtimeImport: '@lithe/dom',
+						typescript: /\.(?:ts|tsx)$/.test(ext),
+						filename: path.relative(root, file),
+						captureEvents: false
+					}).code;
+				}
+				code = rewriteLocalJSX(rewritePathAliases(rewriteBareImports(code, '/__lithe/'), projectAliases));
+				const moduleURL = reqPath.replace(/\.(?:jsx|tsx|ts)$/i, '.js');
+				if (options.hmr !== false && moduleURL.startsWith('/src/')) {
+					code = `import.meta.hot = globalThis.__LITHE_HMR__?.createHotContext(${JSON.stringify(moduleURL)});\n` + code;
+				}
+				recordGraph(moduleURL, code);
+				data = Buffer.from(code);
+				ext = '.js';
+			} else if (ext === '.html' && options.hmr !== false) {
+				let html = data.toString('utf8');
+				const tw = await compileTailwind('', { projectRoot: root });
+				if (tw) html = litheTailwindPlugin().transformIndexHtml(html, tw);
+				const client = '<script type="module" src="/__lithe_hmr_client.js"></script>';
+				html = html.includes('</head>') ? html.replace('</head>', `${client}</head>`) : html.replace('<body>', `${client}<body>`);
+				data = Buffer.from(html);
+			}
+			res.writeHead(200, { 'content-type': types[ext] || 'application/octet-stream', 'cache-control': 'no-store' });
+			res.end(data);
 		} catch (error) { res.writeHead(500, { 'content-type': 'text/plain' }); res.end(error.stack); }
 	});
 	const stopWatch = await watchTree(root, file => { const rel = path.relative(root, file).replace(/\\/g, '/'), url = sourceURL(root, file) || '/' + rel; const payload = JSON.stringify({ path: url, invalidated: invalidated(url) }); for (const client of clients) client.write(`event: change\ndata: ${payload}\n\n`); }); server.on('close', stopWatch);

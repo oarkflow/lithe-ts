@@ -7,7 +7,7 @@ import { stripTypeScript } from '../src/compiler/typescript.ts';
 import { tracedSourceMap } from '../src/compiler/sourcemap.ts';
 import { mergeReactiveGraphs, findReactiveCycles, optimizeReactiveGraph } from '../src/compiler/ir.ts';
 import { validateJavaScript } from '../src/compiler/parser.ts';
-import { FRAMEWORK_ROOT, SRC_ROOT, walk, ensureDir, exists, rewriteBareImports, rewriteLocalJSX } from './shared.ts';
+import { FRAMEWORK_ROOT, SRC_ROOT, walk, ensureDir, exists, rewriteBareImports, rewriteLocalJSX, rewritePathAliases, loadProjectAliases } from './shared.ts';
 import { extractStaticCSS, extractStaticThemes, transformCSSModule, transformScopedCSS, removeUnusedNamedImports, treeShakeCSS, collectCSSClassNames } from './css.ts';
 import { eliminateDeadBranches, minifyJS } from './minify.ts';
 import { splitServerImports, serverModuleId } from './server-split.ts';
@@ -86,25 +86,176 @@ async function emitSingleBundle(out, entry, keys, minify = true) {
 	const modules = [];
 	for (const key of keys) { const file = path.join(out, key); if (!await exists(file) || !file.endsWith('.js')) continue; modules.push(`__litheModules[${JSON.stringify(key)}]=function(__litheRequire,__litheExports,__litheImport){${bundleModule(await fs.readFile(file, 'utf8'), key)}};`); }
 	const code = `const __litheModules={},__litheCache={};function __litheRequire(k){if(__litheCache[k])return __litheCache[k];const e=__litheCache[k]={};__litheModules[k]?.(__litheRequire,e,__litheImport);return e}function __litheImport(k){return Promise.resolve(__litheRequire(k))}${modules.join('')}__litheRequire(${JSON.stringify(entry)});\n`;
-	const file = path.join(out, 'app.js'); await fs.writeFile(file, minify ? minifyJS(code) : code); return file;
+	const finalCode = minify ? minifyJS(code) : code;
+	const chunkName = 'app.js';
+	const dest = path.join(out, chunkName);
+	await ensureDir(dest);
+	await fs.writeFile(dest, finalCode);
+	for (const htmlFile of (await walk(out)).filter(file => file.endsWith('.html'))) {
+		let html = await fs.readFile(htmlFile, 'utf8');
+		html = html.replace(/(<script\b[^>]*type=["']module["'][^>]*src=["'])[^"']+(["'])/gi, `$1/${chunkName}$2`);
+		await fs.writeFile(htmlFile, html);
+	}
+	return chunkName;
 }
-async function mergeSingleStylesheet(out) {
+async function emitChunksBundle(out, entryModules, moduleGraph, minify = true, assetVersion = true) {
+	const normalizeDep = (from, spec) => {
+		if (spec.startsWith('/')) return spec.slice(1);
+		if (spec.startsWith('.')) return path.posix.normalize(path.posix.join(path.posix.dirname(from), spec));
+		return spec;
+	};
+
+	const staticReachable = new Set(entryModules);
+	const q = [...entryModules];
+	while (q.length) {
+		const mod = q.shift();
+		for (const dep of moduleGraph[mod] || []) {
+			const target = normalizeDep(mod, dep.spec);
+			// Include static deps AND event handlers in initial chunk
+			if (dep.dynamic && !dep.event && !target.startsWith('__lithe_events/')) continue;
+			if (moduleGraph[target] && !staticReachable.has(target)) {
+				staticReachable.add(target);
+				q.push(target);
+			}
+		}
+	}
+
+	const dynamicTargets = new Set();
+	for (const [mod, deps] of Object.entries(moduleGraph)) {
+		for (const dep of deps || []) {
+			if (dep.dynamic && !dep.event) {
+				const target = normalizeDep(mod, dep.spec);
+				if (!target.startsWith('__lithe_events/') && !target.includes('.event') && moduleGraph[target] && !staticReachable.has(target)) {
+					dynamicTargets.add(target);
+				}
+			}
+		}
+	}
+
+	const chunkFiles = {};
+	const chunkModules = new Map();
+	const dynamicChunkBases = new Map();
+
+	for (const dynamicTarget of dynamicTargets) {
+		let baseName = path.posix.basename(dynamicTarget, '.js');
+		baseName = baseName.replace(/^src_components_|^src_views_|^src_/, '');
+		dynamicChunkBases.set(dynamicTarget, baseName);
+
+		const chunkSet = new Set([dynamicTarget]);
+		const dq = [dynamicTarget];
+		while (dq.length) {
+			const mod = dq.shift();
+			for (const dep of moduleGraph[mod] || []) {
+				const target = normalizeDep(mod, dep.spec);
+				if (dep.dynamic && !dep.event && !target.startsWith('__lithe_events/')) continue;
+				if (moduleGraph[target] && !staticReachable.has(target) && !chunkSet.has(target)) {
+					chunkSet.add(target);
+					dq.push(target);
+				}
+			}
+		}
+		chunkModules.set(dynamicTarget, chunkSet);
+	}
+
+	async function getModuleBundleCode(key) {
+		const file = path.join(out, key);
+		if (!await exists(file)) return '';
+		const raw = await fs.readFile(file, 'utf8');
+		return bundleModule(raw, key);
+	}
+
+	const emittedChunkFiles = [];
+	for (const [dynamicTarget, modSet] of chunkModules.entries()) {
+		const modulesCode = [];
+		for (const key of modSet) {
+			const body = await getModuleBundleCode(key);
+			if (body) {
+				modulesCode.push(`__litheModules[${JSON.stringify(key)}]=function(__litheRequire,__litheExports,__litheImport){${body}};`);
+			}
+		}
+		const chunkCode = `const __litheModules=globalThis.__litheModules=(globalThis.__litheModules||{});\n${modulesCode.join('\n')}\n`;
+		const finalChunkCode = minify ? minifyJS(chunkCode) : chunkCode;
+		const baseName = dynamicChunkBases.get(dynamicTarget) || 'chunk';
+		let chunkName = `assets/${baseName}.js`;
+		if (assetVersion) {
+			const hash = crypto.createHash('sha256').update(finalChunkCode).digest('hex').slice(0, 8);
+			chunkName = `assets/${baseName}-${hash}.js`;
+		}
+		const dest = path.join(out, chunkName);
+		await ensureDir(dest);
+		await fs.writeFile(dest, finalChunkCode);
+		chunkFiles[dynamicTarget] = chunkName;
+		emittedChunkFiles.push(chunkName);
+	}
+
+	const mainModulesCode = [];
+	for (const key of staticReachable) {
+		const body = await getModuleBundleCode(key);
+		if (body) {
+			mainModulesCode.push(`__litheModules[${JSON.stringify(key)}]=function(__litheRequire,__litheExports,__litheImport){${body}};`);
+		}
+	}
+
+	const entryKey = [...entryModules][0] || 'src/main.js';
+	const mainCode = `const __litheModules=globalThis.__litheModules=(globalThis.__litheModules||{}),__litheCache=(globalThis.__litheCache||(globalThis.__litheCache={}));const __litheChunks=${JSON.stringify(chunkFiles)};function __litheRequire(k){if(__litheCache[k])return __litheCache[k];const e=__litheCache[k]={};__litheModules[k]?.(__litheRequire,e,__litheImport);return e}function __litheImport(k){if(__litheModules[k])return Promise.resolve(__litheRequire(k));const chunkFile=__litheChunks[k]||k;return import('/'+chunkFile).then(()=>__litheRequire(k))}globalThis.__litheRequire=__litheRequire;globalThis.__litheImport=__litheImport;\n${mainModulesCode.join('\n')}\n__litheRequire(${JSON.stringify(entryKey)});\n`;
+
+	const finalMainCode = minify ? minifyJS(mainCode) : mainCode;
+	let mainChunkName = 'assets/main.js';
+	if (assetVersion) {
+		const hash = crypto.createHash('sha256').update(finalMainCode).digest('hex').slice(0, 8);
+		mainChunkName = `assets/main-${hash}.js`;
+	}
+	const mainDest = path.join(out, mainChunkName);
+	await ensureDir(mainDest);
+	await fs.writeFile(mainDest, finalMainCode);
+	emittedChunkFiles.unshift(mainChunkName);
+
+	for (const htmlFile of (await walk(out)).filter(file => file.endsWith('.html'))) {
+		let html = await fs.readFile(htmlFile, 'utf8');
+		html = html.replace(/(<script\b[^>]*type=["']module["'][^>]*src=["'])[^"']+(["'])/gi, `$1/${mainChunkName}$2`);
+		await fs.writeFile(htmlFile, html);
+	}
+
+	let cssRel = 'assets/app.css';
+	if (assetVersion) {
+		const publicCSS = path.join(out, 'app.css'), generatedCSS = path.join(out, 'lithe.css');
+		const parts = [];
+		for (const file of [publicCSS, generatedCSS]) if (await exists(file)) parts.push(await fs.readFile(file, 'utf8'));
+		if (parts.length) {
+			const hash = crypto.createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 8);
+			cssRel = `assets/app-${hash}.css`;
+		}
+	}
+	await mergeSingleStylesheet(out, cssRel);
+
+	await fs.rm(path.join(out, 'src'), { recursive: true, force: true });
+	await fs.rm(path.join(out, '__lithe'), { recursive: true, force: true });
+	await fs.rm(path.join(out, '__lithe_events'), { recursive: true, force: true });
+
+	return {
+		entries: [mainChunkName],
+		chunks: emittedChunkFiles,
+		initial: [mainChunkName],
+		reachable: emittedChunkFiles,
+		chunkFiles
+	};
+}
+async function mergeSingleStylesheet(out, targetRel = 'app.css') {
 	const publicCSS = path.join(out, 'app.css'), generatedCSS = path.join(out, 'lithe.css');
+	const targetCSS = path.join(out, targetRel);
+	await ensureDir(targetCSS);
 	const parts = [];
 	for (const file of [publicCSS, generatedCSS]) if (await exists(file)) parts.push(await fs.readFile(file, 'utf8'));
 	if (!parts.length) return;
-	await fs.writeFile(publicCSS, `${parts.join('\n')}\n`);
-	if (publicCSS !== generatedCSS) await fs.rm(generatedCSS, { force: true });
+	await fs.writeFile(targetCSS, `${parts.join('\n')}\n`);
+	if (publicCSS !== targetCSS && await exists(publicCSS)) await fs.rm(publicCSS, { force: true });
+	if (generatedCSS !== targetCSS && await exists(generatedCSS)) await fs.rm(generatedCSS, { force: true });
 	for (const htmlFile of (await walk(out)).filter(file => file.endsWith('.html'))) {
 		let html = await fs.readFile(htmlFile, 'utf8');
-		// BUG-1: Use attribute-order-independent pattern to remove any <link> pointing to /lithe.css.
-		// The previous pattern was attribute-order-sensitive and missed href-first variants.
 		html = html.replace(/<link\b[^>]*\bhref=["']\/lithe\.css["'][^>]*\/?>/gi, '');
-		// BUG-1: Also strip any <link> that references /app.css so we can inject a clean, canonical one.
 		html = html.replace(/<link\b[^>]*\bhref=["']\/app\.css["'][^>]*\/?>/gi, '');
-		// FEAT-2: Always inject a canonical <link rel="stylesheet" href="/app.css"> before </head>.
-		// This covers the case where the project had no pre-existing app.css but has extracted CSS.
-		const linkTag = '<link rel="stylesheet" href="/app.css">';
+		html = html.replace(/<link\b[^>]*\bhref=["']\/?assets\/app[^"']*\.css["'][^>]*\/?>/gi, '');
+		const linkTag = `<link rel="stylesheet" href="/${targetRel}">`;
 		if (html.includes('</head>')) {
 			html = html.replace('</head>', `${linkTag}</head>`);
 		} else if (html.includes('<body')) {
@@ -169,22 +320,23 @@ export async function buildProject(projectDir, options = {}) {
 
 	report(1, 'Discovering project configuration & preparing output');
 	const root = path.resolve(projectDir), out = path.resolve(root, options.outDir || 'dist'), configFile = path.join(root, 'lithe.config.json'); let config = {}; if (await exists(configFile)) config = JSON.parse(await fs.readFile(configFile, 'utf8'));
-	const sourceMaps = options.sourceMaps ?? config.sourceMaps ?? false, minify = options.minify ?? config.minify ?? true, dce = options.dce ?? config.dce ?? true, bundle = options.bundle ?? config.bundle ?? 'chunks', assetVersion = options.assetVersion ?? config.assetVersion ?? false;
-	if (bundle !== 'chunks' && bundle !== 'single') throw new TypeError(`Unsupported bundle mode: ${bundle}. Use "chunks" or "single".`);
+	const sourceMaps = options.sourceMaps ?? config.sourceMaps ?? false, minify = options.minify ?? config.minify ?? true, dce = options.dce ?? config.dce ?? true, bundle = options.bundle ?? config.bundle ?? 'none', assetVersion = options.assetVersion ?? config.assetVersion ?? false;
+	if (bundle !== 'chunks' && bundle !== 'single' && bundle !== 'none') throw new TypeError(`Unsupported bundle mode: ${bundle}. Use "chunks", "single", or "none".`);
 	globalThis.__LITHE_SINGLE_BUNDLE__ = bundle === 'single';
 	await fs.rm(out, { recursive: true, force: true }); await fs.mkdir(out, { recursive: true });
 	await copyTree(path.join(root, 'public'), out, async (file, dest) => { if (path.extname(file) === '.html') { let code = await fs.readFile(file, 'utf8'); code = code.replace(/(src=["'][^"']+)\.(?:jsx|tsx|ts)(["'])/g, '$1.js$2'); await fs.writeFile(dest, code); return true; } return false; });
 	const css = [], graphs = [], moduleGraph = {}, dataGraphs = [], islands = [], workers = [], serverRefs = [], serverPlacements = [], eventChunks = []; const sourceDir = path.join(root, 'src'); const allSourceFiles = (await walk(sourceDir)).filter(f => /\.(?:js|jsx|ts|tsx)$/.test(f)); const serverSourceFiles = allSourceFiles.filter(f => /\.server\.(?:js|jsx|ts|tsx)$/.test(f)); const sourceFiles = allSourceFiles.filter(f => !/\.server\.(?:js|jsx|ts|tsx)$/.test(f));
+	const projectAliases = await loadProjectAliases(root);
 	report(2, 'Compiling TypeScript & TSX modules', `${sourceFiles.length} files`);
-	for (const file of sourceFiles) { const rel = path.relative(sourceDir, file), ext = path.extname(file); let dest = path.join(out, 'src', rel.replace(/\.(?:jsx|tsx|ts)$/i, '.js')); await ensureDir(dest); const originalRaw = await fs.readFile(file, 'utf8'); const inline = splitInlineServerFunctions(originalRaw, file, sourceDir, { auto: config.autoServerPlacement ?? true }); serverRefs.push(...inline.refs); serverPlacements.push(...inline.candidates.map(x => ({ ...x, file: rel }))); const split = splitServerImports(inline.code, file, sourceDir); serverRefs.push(...split.refs); const raw = removeUnusedServerReferences(split.code); const compiled = compileModule(raw, { runtimeImport: '@lithe/dom', typescript: ext === '.ts' || ext === '.tsx', filename: path.relative(root, file), generatedFile: path.relative(out, dest), sourceMap: sourceMaps, autoWorkers: config.autoWorkers ?? true, workerThreshold: config.workerThreshold }); if (compiled.diagnostics.some(d => d.severity === 'error')) throw new Error(`${rel}: ${compiled.diagnostics.map(d => d.message).join('; ')}`); graphs.push(compiled.graph); islands.push(...(compiled.islands || [])); workers.push(...(compiled.workers || []).map(x => ({ ...x, file: rel }))); for (const handler of compiled.eventHandlers || []) eventChunks.push({ ...handler, sourceFile: file, typescript: ext === '.ts' || ext === '.tsx' }); let code = compiled.code; const staticCSS = extractStaticCSS(code, rel); code = staticCSS.code; if (staticCSS.css) css.push(staticCSS.css); const themes = extractStaticThemes(code); code = themes.code; if (themes.css) css.push(themes.css); code = await replaceCSSImports(code, file, root, css); code = removeUnusedNamedImports(code); code = rewriteLocalJSX(rewriteBareImports(code, '/__lithe/')); const depCode = code; moduleGraph[`src/${rel.replace(/\.(?:jsx|tsx|ts)$/i, '.js')}`] = dependencySpecs(depCode); dataGraphs.push(dataGraphFor(depCode, rel)); if (dce) code = eliminateDeadBranches(code); if (minify) code = minifyJS(code); if (config.syntaxCheck !== false) { const syntax = validateJavaScript(code, { filename: rel, maxErrors: 4 }); if (!syntax.valid) throw new Error(`${rel}: ${syntax.diagnostics.map(d => `${d.line}:${d.column} ${d.message}`).join('; ')}`); } if (sourceMaps) { const mapFile = `${dest}.map`, map = tracedSourceMap(code, originalRaw, path.relative(root, file).replace(/\\/g, '/'), path.relative(out, dest).replace(/\\/g, '/')); await fs.writeFile(mapFile, JSON.stringify(map)); code = appendSourceMap(code, mapFile); } await fs.writeFile(dest, code); }
+	for (const file of sourceFiles) { const rel = path.relative(sourceDir, file), ext = path.extname(file); let dest = path.join(out, 'src', rel.replace(/\.(?:jsx|tsx|ts)$/i, '.js')); await ensureDir(dest); const originalRaw = await fs.readFile(file, 'utf8'); const inline = splitInlineServerFunctions(originalRaw, file, sourceDir, { auto: config.autoServerPlacement ?? true }); serverRefs.push(...inline.refs); serverPlacements.push(...inline.candidates.map(x => ({ ...x, file: rel }))); const split = splitServerImports(inline.code, file, sourceDir); serverRefs.push(...split.refs); const raw = removeUnusedServerReferences(split.code); const compiled = compileModule(raw, { runtimeImport: '@lithe/dom', typescript: ext === '.ts' || ext === '.tsx', filename: path.relative(root, file), generatedFile: path.relative(out, dest), sourceMap: sourceMaps, autoWorkers: config.autoWorkers ?? true, workerThreshold: config.workerThreshold }); if (compiled.diagnostics.some(d => d.severity === 'error')) throw new Error(`${rel}: ${compiled.diagnostics.map(d => d.message).join('; ')}`); graphs.push(compiled.graph); islands.push(...(compiled.islands || [])); workers.push(...(compiled.workers || []).map(x => ({ ...x, file: rel }))); for (const handler of compiled.eventHandlers || []) eventChunks.push({ ...handler, sourceFile: file, typescript: ext === '.ts' || ext === '.tsx' }); let code = compiled.code; const staticCSS = extractStaticCSS(code, rel); code = staticCSS.code; if (staticCSS.css) css.push(staticCSS.css); const themes = extractStaticThemes(code); code = themes.code; if (themes.css) css.push(themes.css); code = await replaceCSSImports(code, file, root, css); code = removeUnusedNamedImports(code); code = rewriteLocalJSX(rewritePathAliases(rewriteBareImports(code, '/__lithe/'), projectAliases)); const depCode = code; moduleGraph[`src/${rel.replace(/\.(?:jsx|tsx|ts)$/i, '.js')}`] = dependencySpecs(depCode); dataGraphs.push(dataGraphFor(depCode, rel)); if (dce) code = eliminateDeadBranches(code); if (minify) code = minifyJS(code); if (config.syntaxCheck !== false) { const syntax = validateJavaScript(code, { filename: rel, maxErrors: 4 }); if (!syntax.valid) throw new Error(`${rel}: ${syntax.diagnostics.map(d => `${d.line}:${d.column} ${d.message}`).join('; ')}`); } if (sourceMaps) { const mapFile = `${dest}.map`, map = tracedSourceMap(code, originalRaw, path.relative(root, file).replace(/\\/g, '/'), path.relative(out, dest).replace(/\\/g, '/')); await fs.writeFile(mapFile, JSON.stringify(map)); code = appendSourceMap(code, mapFile); } await fs.writeFile(dest, code); }
 	// Emit independently loadable resumable event chunks. These chunks may import only safe module imports and receive component-local data exclusively through the serialized capture argument.
-	for (const event of eventChunks) { const rel = `__lithe_events/${event.chunk}`, dest = path.join(out, rel); await ensureDir(dest); const compiled = compileModule(event.code, { runtimeImport: '@lithe/dom', typescript: event.typescript, filename: `${path.relative(root, event.sourceFile)}#${event.chunk}`, generatedFile: rel, sourceMap: false, captureEvents: false, lazyEvents: false, autoWorkers: false }); if (compiled.diagnostics.some(d => d.severity === 'error')) throw new Error(`${event.chunk}: ${compiled.diagnostics.map(d => d.message).join('; ')}`); let code = eventChunkImports(compiled.code, event.sourceFile, sourceDir); code = rewriteLocalJSX(rewriteBareImports(code, '/__lithe/')); const depCode = code; moduleGraph[rel] = dependencySpecs(depCode); if (dce) code = eliminateDeadBranches(code); if (minify) code = minifyJS(code); const syntax = validateJavaScript(code, { filename: event.chunk, maxErrors: 4 }); if (!syntax.valid) throw new Error(`${event.chunk}: ${syntax.diagnostics.map(d => `${d.line}:${d.column} ${d.message}`).join('; ')}`); if (sourceMaps) { const mapFile = `${dest}.map`, map = tracedSourceMap(code, event.code, path.relative(root, event.sourceFile).replace(/\\/g, '/'), rel); await fs.writeFile(mapFile, JSON.stringify(map)); code = appendSourceMap(code, mapFile); } await fs.writeFile(dest, code); }
+	for (const event of eventChunks) { const rel = `__lithe_events/${event.chunk}`, dest = path.join(out, rel); await ensureDir(dest); const compiled = compileModule(event.code, { runtimeImport: '@lithe/dom', typescript: event.typescript, filename: `${path.relative(root, event.sourceFile)}#${event.chunk}`, generatedFile: rel, sourceMap: false, captureEvents: false, lazyEvents: false, autoWorkers: false }); if (compiled.diagnostics.some(d => d.severity === 'error')) throw new Error(`${event.chunk}: ${compiled.diagnostics.map(d => d.message).join('; ')}`); let code = eventChunkImports(compiled.code, event.sourceFile, sourceDir); code = rewriteLocalJSX(rewritePathAliases(rewriteBareImports(code, '/__lithe/'), projectAliases)); const depCode = code; moduleGraph[rel] = dependencySpecs(depCode); if (dce) code = eliminateDeadBranches(code); if (minify) code = minifyJS(code); const syntax = validateJavaScript(code, { filename: event.chunk, maxErrors: 4 }); if (!syntax.valid) throw new Error(`${event.chunk}: ${syntax.diagnostics.map(d => `${d.line}:${d.column} ${d.message}`).join('; ')}`); if (sourceMaps) { const mapFile = `${dest}.map`, map = tracedSourceMap(code, event.code, path.relative(root, event.sourceFile).replace(/\\/g, '/'), rel); await fs.writeFile(mapFile, JSON.stringify(map)); code = appendSourceMap(code, mapFile); } await fs.writeFile(dest, code); }
 
 	let serverOut = null, serverManifest = null;
 	if (serverSourceFiles.length || serverRefs.length) {
 		serverOut = path.join(root, '.lithe', 'server'); await fs.rm(serverOut, { recursive: true, force: true }); await fs.mkdir(path.join(serverOut, 'src'), { recursive: true }); await emitFrameworkTree(path.join(serverOut, '__lithe'));
 		const serverCSS = [];
-		for (const file of allSourceFiles) { const rel = path.relative(sourceDir, file), ext = path.extname(file), dest = path.join(serverOut, 'src', rel.replace(/\.(?:jsx|tsx|ts)$/i, '.js')); await ensureDir(dest); const raw = await fs.readFile(file, 'utf8'); const compiled = compileModule(raw, { runtimeImport: '@lithe/dom', typescript: ext === '.ts' || ext === '.tsx', filename: path.relative(root, file), generatedFile: path.relative(serverOut, dest), sourceMap: sourceMaps, captureEvents: !/\.server\.(?:js|jsx|ts|tsx)$/.test(file), autoWorkers: config.autoWorkers ?? true, workerThreshold: config.workerThreshold }); if (compiled.diagnostics.some(d => d.severity === 'error')) throw new Error(`server ${rel}: ${compiled.diagnostics.map(d => d.message).join('; ')}`); let code = compiled.code; code = (await replaceCSSImports(code, file, root, serverCSS)); const prefix = path.relative(path.dirname(dest), path.join(serverOut, '__lithe')).replace(/\\/g, '/') + '/'; code = rewriteLocalJSX(rewriteBareImports(code, prefix)); if (dce) code = eliminateDeadBranches(code); if (minify) code = minifyJS(code); if (sourceMaps) { const mapFile = `${dest}.map`, map = tracedSourceMap(code, raw, path.relative(root, file).replace(/\\/g, '/'), path.relative(serverOut, dest).replace(/\\/g, '/')); await fs.writeFile(mapFile, JSON.stringify(map)); code = appendSourceMap(code, mapFile); } await fs.writeFile(dest, code); }
+		for (const file of allSourceFiles) { const rel = path.relative(sourceDir, file), ext = path.extname(file), dest = path.join(serverOut, 'src', rel.replace(/\.(?:jsx|tsx|ts)$/i, '.js')); await ensureDir(dest); const raw = await fs.readFile(file, 'utf8'); const compiled = compileModule(raw, { runtimeImport: '@lithe/dom', typescript: ext === '.ts' || ext === '.tsx', filename: path.relative(root, file), generatedFile: path.relative(serverOut, dest), sourceMap: sourceMaps, captureEvents: !/\.server\.(?:js|jsx|ts|tsx)$/.test(file), autoWorkers: config.autoWorkers ?? true, workerThreshold: config.workerThreshold }); if (compiled.diagnostics.some(d => d.severity === 'error')) throw new Error(`server ${rel}: ${compiled.diagnostics.map(d => d.message).join('; ')}`); let code = compiled.code; code = (await replaceCSSImports(code, file, root, serverCSS)); const prefix = path.relative(path.dirname(dest), path.join(serverOut, '__lithe')).replace(/\\/g, '/') + '/'; code = rewriteLocalJSX(rewritePathAliases(rewriteBareImports(code, prefix), projectAliases)); if (dce) code = eliminateDeadBranches(code); if (minify) code = minifyJS(code); if (sourceMaps) { const mapFile = `${dest}.map`, map = tracedSourceMap(code, raw, path.relative(root, file).replace(/\\/g, '/'), path.relative(serverOut, dest).replace(/\\/g, '/')); await fs.writeFile(mapFile, JSON.stringify(map)); code = appendSourceMap(code, mapFile); } await fs.writeFile(dest, code); }
 		const modules = {}; for (const file of serverSourceFiles) { const rel = path.relative(sourceDir, file).replace(/\\/g, '/').replace(/\.(?:jsx|tsx|ts)$/i, '.js'); modules[serverModuleId(rel)] = { file: `src/${rel}`, source: rel }; } for (const ref of serverRefs) if (!modules[ref.id]) modules[ref.id] = { file: `src/${ref.module}`, source: ref.module, inline: Boolean(ref.inline) };
 		for (const ref of serverRefs) if (!modules[ref.id]) throw new Error(`Server import target was not emitted: ${ref.module}`);
 		serverManifest = { version: 1, builtAt: new Date().toISOString(), modules, refs: serverRefs }; await fs.writeFile(path.join(serverOut, 'manifest.json'), JSON.stringify(serverManifest, null, 2));
@@ -217,7 +369,13 @@ export async function buildProject(projectDir, options = {}) {
 	if (entryModules.size) { for (const file of (await walk(path.join(out, 'src'))).filter(f => /\.js(?:\.map)?$/.test(f))) { const rel = 'src/' + path.relative(path.join(out, 'src'), file).replace(/\\/g, '/').replace(/\.map$/, ''); if (!reachable.has(rel)) await fs.rm(file, { force: true }); } for (const key of Object.keys(moduleGraph)) if (key.startsWith('src/') && !reachable.has(key)) delete moduleGraph[key]; const eventDir = path.join(out, '__lithe_events'); if (await exists(eventDir)) for (const file of (await walk(eventDir)).filter(f => /\.js(?:\.map)?$/.test(f))) { const rel = '__lithe_events/' + path.relative(eventDir, file).replace(/\\/g, '/').replace(/\.map$/, ''); if (!reachable.has(rel)) await fs.rm(file, { force: true }); } for (const key of Object.keys(moduleGraph)) if ((key.startsWith('src/') || key.startsWith('__lithe_events/')) && !reachable.has(key)) delete moduleGraph[key]; }
 	const treeShaken = { removed: [], modules: 0 }; if (config.symbolTreeShaking !== false) { const jsFiles = (await walk(out)).filter(f => f.endsWith('.js')), moduleCode = new Map(); for (const f of jsFiles) moduleCode.set(path.relative(out, f).replace(/\\/g, '/'), await fs.readFile(f, 'utf8')); const used = collectUsedExports(moduleCode, [...entryModules]); for (const [rel, originalCode] of moduleCode) { const clean = originalCode.replace(/\n?\/\/# sourceMappingURL=.*?\n?$/, '\n'), shaken = treeShakeModule(clean, used.get(rel) || new Set(), { entry: entryModules.has(rel) }); if (shaken.code === clean) continue; const syntax = validateJavaScript(shaken.code, { filename: rel, maxErrors: 2 }); if (!syntax.valid) continue; const file = path.join(out, rel); let final = shaken.code; treeShaken.modules++; treeShaken.removed.push(...shaken.removed.map(name => `${rel}:${name}`)); if (sourceMaps) { let original = ''; if (rel.startsWith('__lithe/')) { const sourceFile = await frameworkSourceFor(rel.slice('__lithe/'.length)); if (sourceFile) original = await fs.readFile(sourceFile, 'utf8'); } else if (rel.startsWith('src/')) { const base = path.join(sourceDir, rel.slice(4).replace(/\.js$/, '')); for (const ext of ['.js', '.jsx', '.ts', '.tsx']) if (await exists(base + ext)) { original = await fs.readFile(base + ext, 'utf8'); break; } } if (original) { const mapFile = `${file}.map`; await fs.writeFile(mapFile, JSON.stringify(tracedSourceMap(final, original, rel, rel))); final = appendSourceMap(final, mapFile); } } await fs.writeFile(file, final); } }
 	report(5, 'Compiling & tree-shaking stylesheets');
-	const twCSS = await compileTailwind('', { projectRoot: root });
+	const publicCSSFile = path.join(out, 'app.css');
+	let publicCSSCode = '';
+	if (await exists(publicCSSFile)) {
+		publicCSSCode = await fs.readFile(publicCSSFile, 'utf8');
+		await fs.rm(publicCSSFile, { force: true });
+	}
+	const twCSS = await compileTailwind(publicCSSCode, { projectRoot: root });
 	if (twCSS) css.push(twCSS);
 	// FEAT-1: CSS tree shaking — after JS symbol tree-shaking, collect class names still present
 	// in the surviving JS output and strip orphan CSS rules from the extracted CSS chunks.
@@ -240,18 +398,36 @@ export async function buildProject(projectDir, options = {}) {
 			}
 		}
 	}
-	report(6, bundle === 'single' ? 'Emitting single bundle & asset hashes' : 'Generating module chunks & asset hashes');
-	// BUG-3: Single-bundle mode — use directory-level rm for src/, __lithe/, __lithe_events/
-	// so that orphan .map files are cleaned up along with the .js files (no stale source maps).
-	let outputEntryModules = [...entryModules]; if (bundle === 'single' && entryModules.size) { const bundleKeys = (await walk(out)).filter(file => file.endsWith('.js') && !file.includes(`${path.sep}__lithe_events${path.sep}`)).map(file => path.relative(out, file).replace(/\\/g, '/')); const entry = [...entryModules][0]; await emitSingleBundle(out, entry, bundleKeys, minify); for (const htmlFile of (await walk(out)).filter(file => file.endsWith('.html'))) { let html = await fs.readFile(htmlFile, 'utf8'); html = html.replace(/(<script\b[^>]*type=["']module["'][^>]*src=["'])[^"']+(["'])/gi, '$1/app.js$2'); await fs.writeFile(htmlFile, html); } await fs.rm(path.join(out, 'src'), { recursive: true, force: true }); await fs.rm(path.join(out, '__lithe'), { recursive: true, force: true }); await fs.rm(path.join(out, '__lithe_events'), { recursive: true, force: true }); await mergeSingleStylesheet(out); outputEntryModules = ['app.js']; }
+	report(6, bundle === 'single' ? 'Emitting single bundle & asset hashes' : (bundle === 'chunks' ? 'Emitting chunk bundles & asset hashes' : 'Generating module chunks & asset hashes'));
+	let outputEntryModules = [...entryModules];
+	let reachableChunks = [...reachable];
+	let initialChunks = [...staticReachable];
+
+	if (bundle === 'single' && entryModules.size) {
+		const bundleKeys = (await walk(out)).filter(file => file.endsWith('.js') && !file.includes(`${path.sep}__lithe_events${path.sep}`)).map(file => path.relative(out, file).replace(/\\/g, '/'));
+		const entry = [...entryModules][0];
+		const singleChunkName = await emitSingleBundle(out, entry, bundleKeys, minify, assetVersion);
+		await fs.rm(path.join(out, 'src'), { recursive: true, force: true });
+		await fs.rm(path.join(out, '__lithe'), { recursive: true, force: true });
+		await fs.rm(path.join(out, '__lithe_events'), { recursive: true, force: true });
+		await mergeSingleStylesheet(out, 'app.css');
+		outputEntryModules = [singleChunkName];
+		reachableChunks = [singleChunkName];
+		initialChunks = [singleChunkName];
+	} else if (bundle === 'chunks' && entryModules.size) {
+		const chunkResult = await emitChunksBundle(out, entryModules, moduleGraph, minify, assetVersion);
+		outputEntryModules = chunkResult.entries;
+		reachableChunks = chunkResult.reachable;
+		initialChunks = chunkResult.initial;
+	}
 
 	const assetVersionValue = await versionAssets(out, assetVersion);
 
 	report(7, 'Verifying reactive graphs & writing build manifest');
 	const graph = mergeReactiveGraphs(graphs), cycles = findReactiveCycles(graph), reactiveOptimizations = optimizeReactiveGraph(graph); if (cycles.length) throw new Error(`Reactive graph cycle(s): ${cycles.map(c => c.join(' -> ')).join('; ')}`);
-	const files = await walk(out); let bytes = 0, debugBytes = 0, jsBytes = 0, jsGzip = 0, initialJSBytes = 0, initialJSGzip = 0; const initialSet = new Set(bundle === 'single' ? outputEntryModules : [...staticReachable]); for (const f of files) { const data = await fs.readFile(f), rel = path.relative(out, f).replace(/\\/g, '/'); if (f.endsWith('.map')) { debugBytes += data.length; continue; } bytes += data.length; if (f.endsWith('.js')) { const gz = zlib.gzipSync(data).length; jsBytes += data.length; jsGzip += gz; if (initialSet.has(rel)) { initialJSBytes += data.length; initialJSGzip += gz; } } }
+	const files = await walk(out); let bytes = 0, debugBytes = 0, jsBytes = 0, jsGzip = 0, initialJSBytes = 0, initialJSGzip = 0; const initialSet = new Set(initialChunks); for (const f of files) { const data = await fs.readFile(f), rel = path.relative(out, f).replace(/\\/g, '/'); if (f.endsWith('.map')) { debugBytes += data.length; continue; } bytes += data.length; if (f.endsWith('.js')) { const gz = zlib.gzipSync(data).length; jsBytes += data.length; jsGzip += gz; if (initialSet.has(rel)) { initialJSBytes += data.length; initialJSGzip += gz; } } }
 	const budget = config.performance || {}, violations = []; if (budget.initialJsGzip && initialJSGzip > budget.initialJsGzip) violations.push(`Initial JavaScript gzip ${initialJSGzip} exceeds budget ${budget.initialJsGzip}`); if (budget.jsGzip && jsGzip > budget.jsGzip) violations.push(`JavaScript gzip ${jsGzip} exceeds budget ${budget.jsGzip}`); if (budget.totalBytes && bytes > budget.totalBytes) violations.push(`Production bytes ${bytes} exceeds budget ${budget.totalBytes}`); if (budget.debugBytes && debugBytes > budget.debugBytes) violations.push(`Debug bytes ${debugBytes} exceeds budget ${budget.debugBytes}`);
 	const dataGraph = { queries: dataGraphs.flatMap(x => x.queries), mutations: dataGraphs.flatMap(x => x.mutations) }; dataGraph.edges = []; for (const m of dataGraph.mutations) for (const q of dataGraph.queries) if (m.writes.some(t => q.tags.includes(t))) dataGraph.edges.push({ from: m.file, to: q.file, tags: m.writes.filter(t => q.tags.includes(t)) });
-	const manifest = { version: 3, builtAt: new Date().toISOString(), files: files.map(f => path.relative(out, f)), bytes, debugBytes, jsBytes, jsGzip, initialJSBytes, initialJSGzip, frameworkModules: copied.size, minified: minify, sourceMaps, bundle, assetVersion: assetVersionValue, moduleGraph, chunks: { entries: outputEntryModules, reachable: bundle === 'single' ? ['app.js'] : [...reachable], initial: bundle === 'single' ? ['app.js'] : [...staticReachable] }, reactiveGraph: graph, reactiveOptimizations, dataGraph, islands, workers, treeShaken, serverModules: serverManifest ? Object.keys(serverManifest.modules).length : 0, serverPlacements, eventChunks: eventChunks.map(({ chunk, captures, imports }) => ({ chunk, captures, imports })), budgetViolations: violations }; await fs.writeFile(path.join(out, 'lithe-manifest.json'), JSON.stringify(manifest, null, 2));
+	const manifest = { version: 3, builtAt: new Date().toISOString(), files: files.map(f => path.relative(out, f)), bytes, debugBytes, jsBytes, jsGzip, initialJSBytes, initialJSGzip, frameworkModules: copied.size, minified: minify, sourceMaps, bundle, assetVersion: assetVersionValue, moduleGraph, chunks: { entries: outputEntryModules, reachable: reachableChunks, initial: initialChunks }, reactiveGraph: graph, reactiveOptimizations, dataGraph, islands, workers, treeShaken, serverModules: serverManifest ? Object.keys(serverManifest.modules).length : 0, serverPlacements, eventChunks: eventChunks.map(({ chunk, captures, imports }) => ({ chunk, captures, imports })), budgetViolations: violations }; await fs.writeFile(path.join(out, 'lithe-manifest.json'), JSON.stringify(manifest, null, 2));
 	if (violations.length && options.enforceBudgets !== false) throw new Error(`Performance budget failed:\n- ${violations.join('\n- ')}`); return { out, manifest, serverOut };
 }

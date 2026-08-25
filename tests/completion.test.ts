@@ -125,9 +125,9 @@ test('chunks mode tracks initial JavaScript budget separately from lazy imports'
 		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@lithe/dom'; mount(document.getElementById('app'), <main>{()=>import('./heavy.js').then(m=>m.label)}</main>);`);
 		await fs.writeFile(path.join(root, 'src', 'heavy.js'), `export const label = ${JSON.stringify('x'.repeat(40000))};`);
 		const { manifest } = await buildProject(root, { sourceMaps: false });
-		assert.ok(manifest.chunks.initial.includes('src/main.js'));
-		assert.ok(!manifest.chunks.initial.includes('src/heavy.js'));
-		assert.ok(manifest.chunks.reachable.includes('src/heavy.js'));
+		assert.ok(manifest.chunks.initial.some(x => x.endsWith('main.js')));
+		assert.ok(!manifest.chunks.initial.some(x => x.endsWith('heavy.js')));
+		assert.ok(manifest.chunks.reachable.some(x => x.endsWith('heavy.js')));
 		assert.ok(manifest.initialJSGzip < manifest.jsGzip);
 	} finally { await fs.rm(root, { recursive: true, force: true }); }
 });
