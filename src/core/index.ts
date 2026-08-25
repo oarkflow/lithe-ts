@@ -7,4 +7,3 @@ export { getOwner, withOwner, createScope, onMount, onCleanup, disposeOwner, cre
 export * from './adaptive.ts';
 export * from './store.ts';
 export * from './owner-resume.ts';
-

@@ -1,26 +1,230 @@
 import path from 'node:path';
-function identifiers(text){return new Set(text.match(/\b[A-Za-z_$][\w$]*\b/g)||[]);}function position(code,offset){const before=code.slice(0,offset),line=(before.match(/\n/g)||[]).length+1,last=before.lastIndexOf('\n');return{line,column:offset-(last+1)};}
-function balancedCall(code,open){let depth=0;for(let i=open;i<code.length;i++){const c=code[i];if(c==='"'||c==="'"||c==='`'){const q=c;i++;for(;i<code.length;i++){if(code[i]==='\\'){i++;continue;}if(code[i]===q)break;}continue;}if(c==='(')depth++;else if(c===')'&&--depth===0)return i;}return code.length-1;}
-function normalizeFile(file){return String(file).replace(/\\/g,'/').replace(/\.(?:jsx|tsx|ts)$/i,'.js');}
-function resolveImport(from,spec,known){if(!spec.startsWith('.'))return null;const base=normalizeFile(path.posix.normalize(path.posix.join(path.posix.dirname(normalizeFile(from)),spec)));const candidates=[base,/\.[A-Za-z0-9]+$/.test(base)?base:base+'.js',base.replace(/\.(?:jsx|tsx|ts)$/i,'.js'),path.posix.join(base,'index.js')];return candidates.find(x=>known.has(x))||null;}
-export function reactiveGraphIR(code,file='<module>'){
-  file=normalizeFile(file);const nodes=[],edges=[],declared=new Map(),imports=[],exports=new Set();
-  for(const m of code.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)){for(const part of m[1].split(',').map(x=>x.trim()).filter(Boolean)){const mm=part.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/);if(mm)imports.push({imported:mm[1],local:mm[2]||mm[1],spec:m[2],offset:m.index,...position(code,m.index)});}}
-  for(const m of code.matchAll(/\b(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(signal|computed|resource|query)\s*\(/g)){const open=code.indexOf('(',m.index),end=balancedCall(code,open),expression=code.slice(open+1,end);const node={id:`${file}:${m[1]}`,file,name:m[1],kind:m[2],offset:m.index,end:end+1,expression,depNames:[...identifiers(expression)],...position(code,m.index)};nodes.push(node);declared.set(m[1],node);if(/^\s*export\s+/.test(m[0]))exports.add(m[1]);}
-  for(const m of code.matchAll(/\bexport\s*\{([^}]+)\}/g))for(const part of m[1].split(',').map(x=>x.trim())){const mm=part.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/);if(mm)exports.add(mm[1]);}
-  for(const node of nodes.filter(n=>n.kind==='computed'||n.kind==='query'||n.kind==='resource'))for(const name of node.depNames)if(declared.has(name)&&name!==node.name)edges.push({from:declared.get(name).id,to:node.id,kind:'depends',file,line:node.line,column:node.column});
-  return{file,nodes,edges,imports,exports:[...exports]};
+function identifiers(text) {
+    return new Set(text.match(/\b[A-Za-z_$][\w$]*\b/g) || []);
 }
-export function mergeReactiveGraphs(graphs,{link=true}={}){const nodes=graphs.flatMap(g=>g.nodes),edges=graphs.flatMap(g=>g.edges),out={nodes,edges,files:graphs.map(g=>g.file)};if(!link)return out;const known=new Set(graphs.map(g=>normalizeFile(g.file))),byFile=new Map(graphs.map(g=>[normalizeFile(g.file),g]));for(const graph of graphs){for(const imp of graph.imports||[]){const targetFile=resolveImport(graph.file,imp.spec,known);if(!targetFile)continue;const targetGraph=byFile.get(targetFile),target=targetGraph?.nodes.find(n=>n.name===imp.imported);if(!target)continue;for(const consumer of graph.nodes)if(consumer.depNames?.includes(imp.local))edges.push({from:target.id,to:consumer.id,kind:'import-depends',file:consumer.file,line:consumer.line,column:consumer.column,via:imp.local});}}
-  return out;}
-export function findReactiveCycles(graph){const adj=new Map();for(const n of graph.nodes)adj.set(n.id,[]);for(const e of graph.edges)(adj.get(e.from)||[]).push(e.to);const visiting=new Set(),visited=new Set(),cycles=[];function dfs(n,stack){if(visiting.has(n)){const i=stack.indexOf(n);cycles.push([...stack.slice(i),n]);return;}if(visited.has(n))return;visiting.add(n);stack.push(n);for(const x of adj.get(n)||[])dfs(x,stack);stack.pop();visiting.delete(n);visited.add(n);}for(const n of adj.keys())dfs(n,[]);return cycles;}
-export function optimizeReactiveGraph(graph){const incoming=new Map(),outgoing=new Map();for(const n of graph.nodes){incoming.set(n.id,0);outgoing.set(n.id,0);}for(const e of graph.edges){incoming.set(e.to,(incoming.get(e.to)||0)+1);outgoing.set(e.from,(outgoing.get(e.from)||0)+1);}const signatures=new Map();for(const n of graph.nodes.filter(n=>n.kind==='computed')){const sig=n.expression.replace(/\s+/g,' ').trim();if(!signatures.has(sig))signatures.set(sig,[]);signatures.get(sig).push(n.id);}return{deadNodes:graph.nodes.filter(n=>n.kind==='computed'&&(outgoing.get(n.id)||0)===0).map(n=>n.id),dedupeCandidates:[...signatures].filter(([,ids])=>ids.length>1).map(([expression,ids])=>({expression,ids})),hotFanout:graph.nodes.map(n=>({id:n.id,count:outgoing.get(n.id)||0})).filter(x=>x.count>=8).sort((a,b)=>b.count-a.count)};}
-export function graphDiagnostics(graph){return findReactiveCycles(graph).map(c=>{const node=graph.nodes.find(n=>n.id===c[0]);return{severity:'error',code:'REACTIVE_CYCLE',message:`Reactive cycle: ${c.join(' -> ')}`,file:node?.file,line:node?.line,column:node?.column};});}
-export function graphToDOT(graph){return`digraph Lithe {\n${graph.nodes.map(n=>`  ${JSON.stringify(n.id)} [label=${JSON.stringify(`${n.name}:${n.kind}`)}];`).join('\n')}\n${graph.edges.map(e=>`  ${JSON.stringify(e.from)} -> ${JSON.stringify(e.to)} [label=${JSON.stringify(e.kind||'depends')}];`).join('\n')}\n}`;}
-
-export function reactiveDiagnostics(code,file='<module>'){
-  const out=[];
-  for(const m of code.matchAll(/\beffect\s*\(\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*(?:\{)?[\s\S]{0,500}?\b([A-Za-z_$][\w$]*)\.value\s*=\s*([^;\n}]+)/g)){const p=position(code,m.index);out.push({severity:'warning',code:'EFFECT_DERIVATION',file:normalizeFile(file),line:p.line,column:p.column,message:`Effect assigns ${m[1]}.value; if it only derives state, replace the assignment with computed(() => ${m[2].trim()}).`});}
-  for(const m of code.matchAll(/\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*([^;\n]+\.value[^;\n]+);/g)){const expr=m[2];if(/\b(?:signal|computed|query|resource)\s*\(/.test(expr))continue;const p=position(code,m.index);out.push({severity:'info',code:'DERIVATION_CANDIDATE',file:normalizeFile(file),line:p.line,column:p.column,message:`${m[1]} reads reactive values in an eager declaration; consider computed(() => ...) if it must stay reactive.`});}
-  return out;
+function position(code, offset) {
+    const before = code.slice(0, offset),
+        line = (before.match(/\n/g) || []).length + 1,
+        last = before.lastIndexOf('\n');
+    return {
+        line,
+        column: offset - (last + 1)
+    };
+}
+function balancedCall(code, open) {
+    let depth = 0;
+    for (let i = open; i < code.length; i++) {
+        const c = code[i];
+        if (c === '"' || c === "'" || c === '`') {
+            const q = c;
+            i++;
+            for (; i < code.length; i++) {
+                if (code[i] === '\\') {
+                    i++;
+                    continue;
+                }
+                if (code[i] === q) break;
+            }
+            continue;
+        }
+        if (c === '(') depth++; else if (c === ')' && --depth === 0) return i;
+    }
+    return code.length - 1;
+}
+function normalizeFile(file) {
+    return String(file).replace(/\\/g, '/').replace(/\.(?:jsx|tsx|ts)$/i, '.js');
+}
+function resolveImport(from, spec, known) {
+    if (!spec.startsWith('.')) return null;
+    const base = normalizeFile(path.posix.normalize(path.posix.join(path.posix.dirname(normalizeFile(from)), spec)));
+    const candidates = [base, /\.[A-Za-z0-9]+$/.test(base) ? base : base + '.js', base.replace(/\.(?:jsx|tsx|ts)$/i, '.js'), path.posix.join(base, 'index.js')];
+    return candidates.find(x => known.has(x)) || null;
+}
+export function reactiveGraphIR(code, file = '<module>') {
+    file = normalizeFile(file);
+    const nodes = [],
+        edges = [],
+        declared = new Map(),
+        imports = [],
+        exports = new Set();
+    for (const m of code.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+        for (const part of m[1].split(',').map(x => x.trim()).filter(Boolean)) {
+            const mm = part.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/);
+            if (mm) imports.push({
+                imported: mm[1],
+                local: mm[2] || mm[1],
+                spec: m[2],
+                offset: m.index,
+                ...position(code, m.index)
+            });
+        }
+    }
+    for (const m of code.matchAll(/\b(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(signal|computed|resource|query)\s*\(/g)) {
+        const open = code.indexOf('(', m.index),
+            end = balancedCall(code, open),
+            expression = code.slice(open + 1, end);
+        const node = {
+            id: `${file}:${m[1]}`,
+            file,
+            name: m[1],
+            kind: m[2],
+            offset: m.index,
+            end: end + 1,
+            expression,
+            depNames: [...identifiers(expression)],
+            ...position(code, m.index)
+        };
+        nodes.push(node);
+        declared.set(m[1], node);
+        if (/^\s*export\s+/.test(m[0])) exports.add(m[1]);
+    }
+    for (const m of code.matchAll(/\bexport\s*\{([^}]+)\}/g)) for (const part of m[1].split(',').map(x => x.trim())) {
+        const mm = part.match(/^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/);
+        if (mm) exports.add(mm[1]);
+    }
+    for (const node of nodes.filter(n => n.kind === 'computed' || n.kind === 'query' || n.kind === 'resource')) for (const name of node.depNames) if (declared.has(name) && name !== node.name) edges.push({
+        from: declared.get(name).id,
+        to: node.id,
+        kind: 'depends',
+        file,
+        line: node.line,
+        column: node.column
+    });
+    return {
+        file,
+        nodes,
+        edges,
+        imports,
+        exports: [...exports]
+    };
+}
+export function mergeReactiveGraphs(graphs, {
+    link = true
+} = {}) {
+    const nodes = graphs.flatMap(g => g.nodes),
+        edges = graphs.flatMap(g => g.edges),
+        out = {
+            nodes,
+            edges,
+            files: graphs.map(g => g.file)
+        };
+    if (!link) return out;
+    const known = new Set(graphs.map(g => normalizeFile(g.file))),
+        byFile = new Map(graphs.map(g => [normalizeFile(g.file), g]));
+    for (const graph of graphs) {
+        for (const imp of graph.imports || []) {
+            const targetFile = resolveImport(graph.file, imp.spec, known);
+            if (!targetFile) continue;
+            const targetGraph = byFile.get(targetFile),
+                target = targetGraph?.nodes.find(n => n.name === imp.imported);
+            if (!target) continue;
+            for (const consumer of graph.nodes) if (consumer.depNames?.includes(imp.local)) edges.push({
+                from: target.id,
+                to: consumer.id,
+                kind: 'import-depends',
+                file: consumer.file,
+                line: consumer.line,
+                column: consumer.column,
+                via: imp.local
+            });
+        }
+    }
+    return out;
+}
+export function findReactiveCycles(graph) {
+    const adj = new Map();
+    for (const n of graph.nodes) adj.set(n.id, []);
+    for (const e of graph.edges) (adj.get(e.from) || []).push(e.to);
+    const visiting = new Set(),
+        visited = new Set(),
+        cycles = [];
+    function dfs(n, stack) {
+        if (visiting.has(n)) {
+            const i = stack.indexOf(n);
+            cycles.push([...stack.slice(i), n]);
+            return;
+        }
+        if (visited.has(n)) return;
+        visiting.add(n);
+        stack.push(n);
+        for (const x of adj.get(n) || []) dfs(x, stack);
+        stack.pop();
+        visiting.delete(n);
+        visited.add(n);
+    }
+    for (const n of adj.keys()) dfs(n, []);
+    return cycles;
+}
+export function optimizeReactiveGraph(graph) {
+    const incoming = new Map(),
+        outgoing = new Map();
+    for (const n of graph.nodes) {
+        incoming.set(n.id, 0);
+        outgoing.set(n.id, 0);
+    }
+    for (const e of graph.edges) {
+        incoming.set(e.to, (incoming.get(e.to) || 0) + 1);
+        outgoing.set(e.from, (outgoing.get(e.from) || 0) + 1);
+    }
+    const signatures = new Map();
+    for (const n of graph.nodes.filter(n => n.kind === 'computed')) {
+        const sig = n.expression.replace(/\s+/g, ' ').trim();
+        if (!signatures.has(sig)) signatures.set(sig, []);
+        signatures.get(sig).push(n.id);
+    }
+    return {
+        deadNodes: graph.nodes.filter(n => n.kind === 'computed' && (outgoing.get(n.id) || 0) === 0).map(n => n.id),
+        dedupeCandidates: [...signatures].filter(([, ids]) => ids.length > 1).map(([expression, ids]) => ({
+            expression,
+            ids
+        })),
+        hotFanout: graph.nodes.map(n => ({
+            id: n.id,
+            count: outgoing.get(n.id) || 0
+        })).filter(x => x.count >= 8).sort((a, b) => b.count - a.count)
+    };
+}
+export function graphDiagnostics(graph) {
+    return findReactiveCycles(graph).map(c => {
+        const node = graph.nodes.find(n => n.id === c[0]);
+        return {
+            severity: 'error',
+            code: 'REACTIVE_CYCLE',
+            message: `Reactive cycle: ${c.join(' -> ')}`,
+            file: node?.file,
+            line: node?.line,
+            column: node?.column
+        };
+    });
+}
+export function graphToDOT(graph) {
+    return `digraph Lithe {\n${graph.nodes.map(n => `  ${JSON.stringify(n.id)} [label=${JSON.stringify(`${n.name}:${n.kind}`)}];`).join('\n')}\n${graph.edges.map(e => `  ${JSON.stringify(e.from)} -> ${JSON.stringify(e.to)} [label=${JSON.stringify(e.kind || 'depends')}];`).join('\n')}\n}`;
+}
+export function reactiveDiagnostics(code, file = '<module>') {
+    const out = [];
+    for (const m of code.matchAll(/\beffect\s*\(\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*(?:\{)?[\s\S]{0,500}?\b([A-Za-z_$][\w$]*)\.value\s*=\s*([^;\n}]+)/g)) {
+        const p = position(code, m.index);
+        out.push({
+            severity: 'warning',
+            code: 'EFFECT_DERIVATION',
+            file: normalizeFile(file),
+            line: p.line,
+            column: p.column,
+            message: `Effect assigns ${m[1]}.value; if it only derives state, replace the assignment with computed(() => ${m[2].trim()}).`
+        });
+    }
+    for (const m of code.matchAll(/\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*([^;\n]+\.value[^;\n]+);/g)) {
+        const expr = m[2];
+        if (/\b(?:signal|computed|query|resource)\s*\(/.test(expr)) continue;
+        const p = position(code, m.index);
+        out.push({
+            severity: 'info',
+            code: 'DERIVATION_CANDIDATE',
+            file: normalizeFile(file),
+            line: p.line,
+            column: p.column,
+            message: `${m[1]} reads reactive values in an eager declaration; consider computed(() => ...) if it must stay reactive.`
+        });
+    }
+    return out;
 }

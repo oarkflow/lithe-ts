@@ -1,8 +1,163 @@
 import fs from 'node:fs/promises';
-function u16be(b,o){return b.readUInt16BE(o)}function u24le(b,o){return b[o]|(b[o+1]<<8)|(b[o+2]<<16)}function u32be(b,o){return b.readUInt32BE(o)}
-function jpeg(buf){let i=2;while(i+9<buf.length){if(buf[i]!==0xff){i++;continue;}const marker=buf[i+1];if(marker===0xd8||marker===0xd9){i+=2;continue;}const len=u16be(buf,i+2);if(len<2)break;if((marker>=0xc0&&marker<=0xc3)||(marker>=0xc5&&marker<=0xc7)||(marker>=0xc9&&marker<=0xcb)||(marker>=0xcd&&marker<=0xcf))return{format:'jpeg',width:u16be(buf,i+7),height:u16be(buf,i+5)};i+=2+len;}return null;}
-function webp(buf){const kind=buf.toString('ascii',12,16);if(kind==='VP8X'&&buf.length>=30)return{format:'webp',width:1+u24le(buf,24),height:1+u24le(buf,27)};if(kind==='VP8 '&&buf.length>=30)return{format:'webp',width:buf.readUInt16LE(26)&0x3fff,height:buf.readUInt16LE(28)&0x3fff};if(kind==='VP8L'&&buf.length>=25){const bits=buf.readUInt32LE(21);return{format:'webp',width:(bits&0x3fff)+1,height:((bits>>14)&0x3fff)+1};}return null;}
-function isobmff(buf){let i=0;while(i+8<=buf.length){let size=u32be(buf,i),type=buf.toString('ascii',i+4,i+8);if(size===1&&i+16<=buf.length)size=Number(buf.readBigUInt64BE(i+8));if(type==='ispe'&&i+20<=buf.length)return{format:'avif/heif',width:u32be(buf,i+12),height:u32be(buf,i+16)};if(!size||size<8)break;i+=size;}for(let j=0;j+20<=buf.length;j++)if(buf.toString('ascii',j+4,j+8)==='ispe')return{format:'avif/heif',width:u32be(buf,j+12),height:u32be(buf,j+16)};return null;}
-function tiff(buf){if(buf.length<16)return null;const little=buf.toString('ascii',0,2)==='II',big=buf.toString('ascii',0,2)==='MM';if(!little&&!big)return null;const u16=(o)=>little?buf.readUInt16LE(o):buf.readUInt16BE(o),u32=(o)=>little?buf.readUInt32LE(o):buf.readUInt32BE(o);if(u16(2)!==42)return null;const ifd=u32(4);if(ifd+2>buf.length)return null;const count=u16(ifd);let width=null,height=null;for(let i=0;i<count;i++){const o=ifd+2+i*12;if(o+12>buf.length)break;const tag=u16(o),type=u16(o+2),n=u32(o+4);if((tag===256||tag===257)&&n>=1){let value;if(type===3)value=little?buf.readUInt16LE(o+8):buf.readUInt16BE(o+8);else if(type===4)value=u32(o+8);if(tag===256)width=value;if(tag===257)height=value;}}return width&&height?{format:'tiff',width,height}:null;}
-export function imageMetadata(buf){if(!Buffer.isBuffer(buf))buf=Buffer.from(buf);if(buf.length>=24&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))return{format:'png',width:u32be(buf,16),height:u32be(buf,20)};if(buf.length>=10&&/^GIF8[79]a$/.test(buf.toString('ascii',0,6)))return{format:'gif',width:buf.readUInt16LE(6),height:buf.readUInt16LE(8)};if(buf.length>=4&&buf[0]===0xff&&buf[1]===0xd8)return jpeg(buf);if(buf.length>=30&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP')return webp(buf);if(buf.length>=26&&buf.toString('ascii',0,2)==='BM')return{format:'bmp',width:Math.abs(buf.readInt32LE(18)),height:Math.abs(buf.readInt32LE(22))};if(buf.length>=8&&buf.readUInt16LE(0)===0&&buf.readUInt16LE(2)===1){const count=buf.readUInt16LE(4);if(count){const w=buf[6]||256,h=buf[7]||256;return{format:'ico',width:w,height:h,images:count};}}const tif=tiff(buf);if(tif)return tif;const iso=isobmff(buf);if(iso)return iso;const text=buf.subarray(0,Math.min(buf.length,32768)).toString('utf8');if(/<svg\b/i.test(text)){const tag=text.match(/<svg\b[^>]*>/i)?.[0]||'',w=tag.match(/\bwidth=["']?([\d.]+)/i)?.[1],h=tag.match(/\bheight=["']?([\d.]+)/i)?.[1],view=tag.match(/\bviewBox=["']([^"']+)/i)?.[1]?.trim().split(/[ ,]+/).map(Number);return{format:'svg',width:w?Number(w):view?.[2]??null,height:h?Number(h):view?.[3]??null};}return null;}
-export async function inspectImage(file){const meta=imageMetadata(await fs.readFile(file));if(!meta)throw new Error(`Unsupported or invalid image: ${file}`);return{file,...meta};}
+
+function u16be(b, o) {
+	return b.readUInt16BE(o);
+}
+
+function u24le(b, o) {
+	return b[o] | (b[o + 1] << 8) | (b[o + 2] << 16);
+}
+
+function u32be(b, o) {
+	return b.readUInt32BE(o);
+}
+
+function jpeg(buf) {
+	let i = 2;
+	while (i + 9 < buf.length) {
+		if (buf[i] !== 0xff) {
+			i++;
+			continue;
+		}
+		const marker = buf[i + 1];
+		if (marker === 0xd8 || marker === 0xd9) {
+			i += 2;
+			continue;
+		}
+		const len = u16be(buf, i + 2);
+		if (len < 2) break;
+		if ((marker >= 0xc0 && marker <= 0xc3) ||
+			(marker >= 0xc5 && marker <= 0xc7) ||
+			(marker >= 0xc9 && marker <= 0xcb) ||
+			(marker >= 0xcd && marker <= 0xcf)) {
+			return { format: 'jpeg', width: u16be(buf, i + 7), height: u16be(buf, i + 5) };
+		}
+		i += 2 + len;
+	}
+	return null;
+}
+
+function webp(buf) {
+	const kind = buf.toString('ascii', 12, 16);
+	if (kind === 'VP8X' && buf.length >= 30) {
+		return { format: 'webp', width: 1 + u24le(buf, 24), height: 1 + u24le(buf, 27) };
+	}
+	if (kind === 'VP8 ' && buf.length >= 30) {
+		return { format: 'webp', width: buf.readUInt16LE(26) & 0x3fff, height: buf.readUInt16LE(28) & 0x3fff };
+	}
+	if (kind === 'VP8L' && buf.length >= 25) {
+		const bits = buf.readUInt32LE(21);
+		return { format: 'webp', width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+	}
+	return null;
+}
+
+function isobmff(buf) {
+	let i = 0;
+	while (i + 8 <= buf.length) {
+		let size = u32be(buf, i);
+		const type = buf.toString('ascii', i + 4, i + 8);
+		if (size === 1 && i + 16 <= buf.length) {
+			size = Number(buf.readBigUInt64BE(i + 8));
+		}
+		if (type === 'ispe' && i + 20 <= buf.length) {
+			return { format: 'avif/heif', width: u32be(buf, i + 12), height: u32be(buf, i + 16) };
+		}
+		if (!size || size < 8) break;
+		i += size;
+	}
+	for (let j = 0; j + 20 <= buf.length; j++) {
+		if (buf.toString('ascii', j + 4, j + 8) === 'ispe') {
+			return { format: 'avif/heif', width: u32be(buf, j + 12), height: u32be(buf, j + 16) };
+		}
+	}
+	return null;
+}
+
+function tiff(buf) {
+	if (buf.length < 16) return null;
+	const little = buf.toString('ascii', 0, 2) === 'II';
+	const big = buf.toString('ascii', 0, 2) === 'MM';
+	if (!little && !big) return null;
+
+	const u16 = (o) => little ? buf.readUInt16LE(o) : buf.readUInt16BE(o);
+	const u32 = (o) => little ? buf.readUInt32LE(o) : buf.readUInt32BE(o);
+
+	if (u16(2) !== 42) return null;
+	const ifd = u32(4);
+	if (ifd + 2 > buf.length) return null;
+
+	const count = u16(ifd);
+	let width = null, height = null;
+
+	for (let i = 0; i < count; i++) {
+		const o = ifd + 2 + i * 12;
+		if (o + 12 > buf.length) break;
+		const tag = u16(o);
+		const type = u16(o + 2);
+		const n = u32(o + 4);
+		if ((tag === 256 || tag === 257) && n >= 1) {
+			let value;
+			if (type === 3) value = little ? buf.readUInt16LE(o + 8) : buf.readUInt16BE(o + 8);
+			else if (type === 4) value = u32(o + 8);
+			if (tag === 256) width = value;
+			if (tag === 257) height = value;
+		}
+	}
+
+	return width && height ? { format: 'tiff', width, height } : null;
+}
+
+export function imageMetadata(buf) {
+	if (!Buffer.isBuffer(buf)) buf = Buffer.from(buf);
+
+	if (buf.length >= 24 && buf.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+		return { format: 'png', width: u32be(buf, 16), height: u32be(buf, 20) };
+	}
+	if (buf.length >= 10 && /^GIF8[79]a$/.test(buf.toString('ascii', 0, 6))) {
+		return { format: 'gif', width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+	}
+	if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+		return jpeg(buf);
+	}
+	if (buf.length >= 30 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+		return webp(buf);
+	}
+	if (buf.length >= 26 && buf.toString('ascii', 0, 2) === 'BM') {
+		return { format: 'bmp', width: Math.abs(buf.readInt32LE(18)), height: Math.abs(buf.readInt32LE(22)) };
+	}
+	if (buf.length >= 8 && buf.readUInt16LE(0) === 0 && buf.readUInt16LE(2) === 1) {
+		const count = buf.readUInt16LE(4);
+		if (count) {
+			const w = buf[6] || 256, h = buf[7] || 256;
+			return { format: 'ico', width: w, height: h, images: count };
+		}
+	}
+
+	const tif = tiff(buf);
+	if (tif) return tif;
+
+	const iso = isobmff(buf);
+	if (iso) return iso;
+
+	const text = buf.subarray(0, Math.min(buf.length, 32768)).toString('utf8');
+	if (/<svg\b/i.test(text)) {
+		const tag = text.match(/<svg\b[^>]*>/i)?.[0] || '';
+		const w = tag.match(/\bwidth=["']?([\d.]+)/i)?.[1];
+		const h = tag.match(/\bheight=["']?([\d.]+)/i)?.[1];
+		const view = tag.match(/\bviewBox=["']([^"']+)/i)?.[1]?.trim().split(/[ ,]+/).map(Number);
+		return {
+			format: 'svg',
+			width: w ? Number(w) : view?.[2] ?? null,
+			height: h ? Number(h) : view?.[3] ?? null
+		};
+	}
+
+	return null;
+}
+
+export async function inspectImage(file) {
+	const meta = imageMetadata(await fs.readFile(file));
+	if (!meta) throw new Error(`Unsupported or invalid image: ${file}`);
+	return { file, ...meta };
+}

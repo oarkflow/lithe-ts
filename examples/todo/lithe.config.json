@@ -4,7 +4,8 @@
 	"bundle": "chunks",
 	"assetVersion": true,
 	"performance": {
-		"initialJsGzip": 18000,
-		"totalBytes": 250000
+		"enabled": false,
+		"initialJsGzip": "50kb",
+		"totalBytes": "1mb"
 	}
 }

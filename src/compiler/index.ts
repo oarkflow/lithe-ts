@@ -4,10 +4,8 @@ export * from './ir.ts';
 export * from './sourcemap.ts';
 export * from './custom-element.ts';
 export * from './islands.ts';
-
 export * from './parser.ts';
 export * from './workers.ts';
 export * from './a11y.ts';
-
 export * from './typecheck.ts';
 export * from '../plugins/index.ts';

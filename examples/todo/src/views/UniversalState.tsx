@@ -17,10 +17,6 @@ const metadataStore = state(new Map<string, string>([
 ]));
 
 export function UniversalState() {
-	const count = useCounter();
-	const flag = useFlag();
-	const label = useLabel();
-
 	const newTagDraft = state({ input: '' });
 	const newMetaKey = state({ input: '' });
 	const newMetaVal = state({ input: '' });
@@ -63,7 +59,7 @@ export function UniversalState() {
 
 				<div class="scalar-row">
 					<span class="label">Number (int/float):</span>
-					<strong>{() => count}</strong>
+					<strong>{() => useCounter.state.value}</strong>
 					<div class="btn-group">
 						<button type="button" class="btn btn-sm btn-outline" onClick={() => useCounter.setState(c => c - 1)}>-1</button>
 						<button type="button" class="btn btn-sm btn-outline" onClick={() => useCounter.setState(c => c + 1)}>+1</button>
@@ -73,8 +69,8 @@ export function UniversalState() {
 
 				<div class="scalar-row">
 					<span class="label">Boolean Flag:</span>
-					<strong class={() => flag ? 'text-success' : 'text-danger'}>
-						{() => flag ? 'ACTIVE (true)' : 'INACTIVE (false)'}
+					<strong class={() => useFlag.state.value ? 'text-success' : 'text-danger'}>
+						{() => useFlag.state.value ? 'ACTIVE (true)' : 'INACTIVE (false)'}
 					</strong>
 					<button type="button" class="btn btn-sm btn-outline" onClick={() => useFlag.setState(f => !f)}>Toggle</button>
 				</div>
@@ -83,7 +79,7 @@ export function UniversalState() {
 					<span class="label">String:</span>
 					<input
 						type="text"
-						value={() => label}
+						value={() => useLabel.state.value}
 						onInput={(e: InputEvent) => useLabel.setState((e.currentTarget as HTMLInputElement).value)}
 						class="input-main input-sm"
 					/>

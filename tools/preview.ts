@@ -28,15 +28,18 @@ function safe(root: string, pathname: string): string | null {
 export async function previewProject(projectDir: string, options: { port?: number | string; host?: string; outDir?: string } = {}) {
 	const root = path.resolve(projectDir);
 	const distDir = path.resolve(root, options.outDir || 'dist');
+
 	if (!await exists(distDir)) {
 		throw new Error(`Build output directory not found: ${distDir}. Run "lithe build" first.`);
 	}
+
 	const port = Number(options.port ?? 4173);
 
 	const server = http.createServer(async (req, res) => {
 		try {
 			const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
 			let file = safe(distDir, url.pathname === '/' ? '/index.html' : url.pathname);
+
 			if (!file || !await exists(file) || (await fs.stat(file)).isDirectory()) {
 				file = path.join(distDir, 'index.html');
 				if (!await exists(file)) {
@@ -45,9 +48,11 @@ export async function previewProject(projectDir: string, options: { port?: numbe
 					return;
 				}
 			}
+
 			const data = await fs.readFile(file);
 			const ext = path.extname(file);
 			const isVersioned = url.searchParams.has('v');
+
 			res.writeHead(200, {
 				'content-type': types[ext] || 'application/octet-stream',
 				'cache-control': isVersioned ? 'public, max-age=31536000, immutable' : 'no-cache'
@@ -63,9 +68,15 @@ export async function previewProject(projectDir: string, options: { port?: numbe
 	for (let attempt = 0; attempt < 20; attempt++) {
 		try {
 			await new Promise<void>((resolve, reject) => {
-				const onError = (error: any) => { server.off('listening', resolve); reject(error); };
+				const onError = (error: any) => {
+					server.off('listening', resolve);
+					reject(error);
+				};
 				server.once('error', onError);
-				server.listen(actualPort, options.host || '127.0.0.1', () => { server.off('error', onError); resolve(); });
+				server.listen(actualPort, options.host || '127.0.0.1', () => {
+					server.off('error', onError);
+					resolve();
+				});
 			});
 			break;
 		} catch (error: any) {
@@ -73,6 +84,7 @@ export async function previewProject(projectDir: string, options: { port?: numbe
 			actualPort++;
 		}
 	}
+
 	const address = server.address();
 	actualPort = typeof address === 'object' && address ? address.port : actualPort;
 	return { server, url: `http://${options.host || '127.0.0.1'}:${actualPort}`, distDir };

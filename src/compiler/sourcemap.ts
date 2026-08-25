@@ -1,9 +1,87 @@
-const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-function vlq(value){let v=(Math.abs(value)<<1)+(value<0?1:0),out='';do{let digit=v&31;v>>>=5;if(v)digit|=32;out+=chars[digit];}while(v);return out;}
-function words(line){const out=new Set();for(const m of String(line).matchAll(/[A-Za-z_$][\w$]{2,}|(?:"[^"\n]{2,}"|'[^'\n]{2,}')/g))out.add(m[0]);return out;}
-function score(a,b){if(!a.size||!b.size)return 0;let n=0;for(const x of a)if(b.has(x))n++;return n/Math.max(a.size,b.size);}
-function lineMap(generated,source){const gl=generated.split('\n'),sl=source.split('\n'),sourceWords=sl.map(words),mapped=[];let previous=0;for(let i=0;i<gl.length;i++){const g=words(gl[i]);if(!g.size){mapped.push(previous);continue;}const proportional=Math.min(sl.length-1,Math.max(0,Math.round(i*Math.max(1,sl.length-1)/Math.max(1,gl.length-1))));let best=proportional,bestScore=-1;const start=Math.max(0,Math.min(previous,proportional)-24),end=Math.min(sl.length-1,Math.max(previous,proportional)+24);for(let j=start;j<=end;j++){const s=score(g,sourceWords[j])-(Math.abs(j-proportional)*0.001);if(s>bestScore){bestScore=s;best=j;}}if(bestScore<=0){for(let j=0;j<sl.length;j++){const s=score(g,sourceWords[j])-(Math.abs(j-proportional)*0.0002);if(s>bestScore){bestScore=s;best=j;}}}previous=best;mapped.push(best);}return mapped;}
-export function tracedSourceMap(generated,source,filename='source.js',generatedFile='output.js'){
-  const map=lineMap(generated,source);let previousSourceLine=0,mappings='';for(let i=0;i<map.length;i++){if(i)mappings+=';';const srcLine=map[i];mappings+=vlq(0)+vlq(0)+vlq(srcLine-previousSourceLine)+vlq(0);previousSourceLine=srcLine;}return{version:3,file:generatedFile,sources:[filename],sourcesContent:[source],names:[],mappings,x_lithe:{strategy:'token-line-trace',generatedLines:map.length}};
+const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function vlq(value) {
+    let v = (Math.abs(value) << 1) + (value < 0 ? 1 : 0),
+        out = '';
+    do {
+        let digit = v & 31;
+        v >>>= 5;
+        if (v) digit |= 32;
+        out += chars[digit];
+    } while (v);
+    return out;
 }
-export function identitySourceMap(generated,source,filename='source.js',generatedFile='output.js'){return tracedSourceMap(generated,source,filename,generatedFile);}
+function words(line) {
+    const out = new Set();
+    for (const m of String(line).matchAll(/[A-Za-z_$][\w$]{2,}|(?:"[^"\n]{2,}"|'[^'\n]{2,}')/g)) out.add(m[0]);
+    return out;
+}
+function score(a, b) {
+    if (!a.size || !b.size) return 0;
+    let n = 0;
+    for (const x of a) if (b.has(x)) n++;
+    return n / Math.max(a.size, b.size);
+}
+function lineMap(generated, source) {
+    const gl = generated.split('\n'),
+        sl = source.split('\n'),
+        sourceWords = sl.map(words),
+        mapped = [];
+    let previous = 0;
+    for (let i = 0; i < gl.length; i++) {
+        const g = words(gl[i]);
+        if (!g.size) {
+            mapped.push(previous);
+            continue;
+        }
+        const proportional = Math.min(sl.length - 1, Math.max(0, Math.round(i * Math.max(1, sl.length - 1) / Math.max(1, gl.length - 1))));
+        let best = proportional,
+            bestScore = -1;
+        const start = Math.max(0, Math.min(previous, proportional) - 24),
+            end = Math.min(sl.length - 1, Math.max(previous, proportional) + 24);
+        for (let j = start; j <= end; j++) {
+            const s = score(g, sourceWords[j]) - Math.abs(j - proportional) * 0.001;
+            if (s > bestScore) {
+                bestScore = s;
+                best = j;
+            }
+        }
+        if (bestScore <= 0) {
+            for (let j = 0; j < sl.length; j++) {
+                const s = score(g, sourceWords[j]) - Math.abs(j - proportional) * 0.0002;
+                if (s > bestScore) {
+                    bestScore = s;
+                    best = j;
+                }
+            }
+        }
+        previous = best;
+        mapped.push(best);
+    }
+    return mapped;
+}
+export function tracedSourceMap(generated, source, filename = 'source.js', generatedFile = 'output.js') {
+    const map = lineMap(generated, source);
+    let previousSourceLine = 0,
+        mappings = '';
+    for (let i = 0; i < map.length; i++) {
+        if (i) mappings += ';';
+        const srcLine = map[i];
+        mappings += vlq(0) + vlq(0) + vlq(srcLine - previousSourceLine) + vlq(0);
+        previousSourceLine = srcLine;
+    }
+    return {
+        version: 3,
+        file: generatedFile,
+        sources: [filename],
+        sourcesContent: [source],
+        names: [],
+        mappings,
+        x_lithe: {
+            strategy: 'token-line-trace',
+            generatedLines: map.length
+        }
+    };
+}
+export function identitySourceMap(generated, source, filename = 'source.js', generatedFile = 'output.js') {
+    return tracedSourceMap(generated, source, filename, generatedFile);
+}

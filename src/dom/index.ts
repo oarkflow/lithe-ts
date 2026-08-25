@@ -4,5 +4,4 @@ export * from './control.ts';
 export * from './events.ts';
 export * from './hydrate.ts';
 export * from './resume.ts';
-
 export * from './event-symbol.ts';
