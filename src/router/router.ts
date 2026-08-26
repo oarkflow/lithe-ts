@@ -200,7 +200,7 @@ export function lazyRoute<TProps = any>(loader: () => Promise<any>, options: Laz
         throw err;
     });
     function LazyRoute(props: TProps) {
-        if (!component && !promise) load().catch(() => { });
+        if (!component && !promise) load().catch(e => console.warn('[lithe:router] Failed to load lazy route:', e));
         return dynamic(() => {
             tick.value;
             if (component) return h(component, props);
@@ -536,7 +536,7 @@ export function Link(props: LinkProps): any {
     } = props;
     let observer, idle;
     const warm = () => {
-        if (prefetch !== false && router?.prefetch && prefetchPolicy()) router.prefetch(to).catch(() => { });
+        if (prefetch !== false && router?.prefetch && prefetchPolicy()) router.prefetch(to).catch(e => console.warn('[lithe:router] Prefetch failed:', e));
     };
     const ref = el => {
         userRef?.(el);

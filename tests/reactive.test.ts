@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, computed, effect, batch, state, createScope, onCleanup, explainSignal } from '../src/core/index.ts';
+import { signal, computed, effect, batch, state, createScope, onCleanup, explainSignal, watch } from '../src/core/index.ts';
 
 test('signal and computed update fine-grained dependencies', () => {
   const a=signal(2), b=signal(3); const total=computed(()=>a.value*b.value);
@@ -57,4 +57,45 @@ test('signal and computed equality options control invalidation', () => {
   assert.equal(rounded.value,1);
   raw.value=1.4;
   assert.equal(rounded.value,1);
+});
+
+test('watch with deep:true performs structural comparison', () => {
+  const obj = signal({ a: 1, b: { c: 2 } });
+  const changes: Array<{ value: any; previous: any }> = [];
+  const stop = watch(obj, (value, previous) => {
+    changes.push({ value, previous });
+  }, { deep: true, sync: true });
+
+  // Same structure should not trigger
+  obj.value = { a: 1, b: { c: 2 } };
+  assert.equal(changes.length, 0);
+
+  // Different nested value should trigger
+  obj.value = { a: 1, b: { c: 3 } };
+  assert.equal(changes.length, 1);
+  assert.deepEqual(changes[0].value, { a: 1, b: { c: 3 } });
+  assert.deepEqual(changes[0].previous, { a: 1, b: { c: 2 } });
+
+  // Same reference should not trigger
+  const current = obj.value;
+  obj.value = current;
+  assert.equal(changes.length, 1);
+
+  stop();
+});
+
+test('watch with deep:false uses reference equality', () => {
+  const obj = signal({ a: 1 });
+  let calls = 0;
+  const stop = watch(obj, () => { calls++; }, { sync: true });
+
+  // New reference triggers
+  obj.value = { a: 1 };
+  assert.equal(calls, 1);
+
+  // Same reference does not trigger
+  obj.value = obj.value;
+  assert.equal(calls, 1);
+
+  stop();
 });

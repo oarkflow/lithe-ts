@@ -90,7 +90,8 @@ export function createPersistentMutationQueue(storage, storageKey = 'lithe:mutat
     const ready = (async () => {
         try {
             queue = JSON.parse((await storage.getItem(storageKey)) || '[]');
-        } catch {
+        } catch (e) {
+            console.warn('[lithe:offline] Failed to load persistent mutation queue:', e);
             queue = [];
         }
         loaded = true;

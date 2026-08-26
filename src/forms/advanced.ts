@@ -79,7 +79,9 @@ export function createAdvancedForm(options = {}) {
         let draft;
         if (typeof options.restoreDraft === 'function') draft = await options.restoreDraft(); else try {
             draft = JSON.parse((await storage?.getItem?.(key)) || 'null');
-        } catch { }
+        } catch (e) {
+            console.warn('[lithe:forms] Failed to restore draft:', e);
+        }
         if (!draft) return false;
         form.reset(draft);
         return true;

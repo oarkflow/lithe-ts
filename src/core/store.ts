@@ -596,7 +596,9 @@ export function devtools<T extends object, Actions extends object = {}>(creator:
                 if (message.type === 'DISPATCH' && message.state) {
                     try {
                         set(JSON.parse(message.state), 'devtools/timeTravel');
-                    } catch { }
+                    } catch (e) {
+                        console.warn('[lithe:store] Failed to apply devtools time travel:', e);
+                    }
                 }
             });
         }

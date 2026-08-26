@@ -121,23 +121,27 @@ export function collection(initial = [], options = {}) {
         upsert(item) {
             const i = index.get(idOf(item));
             if (i == null) return api.insert(item);
-            const before = {
-                ...(items[i]?.__raw || items[i])
-            };
-            Object.assign(items[i], item);
-            notifyItem(before, items[i]);
-            return items[i];
+            const existing = items[i];
+            const before = { ...(existing?.__raw || existing) };
+            for (const key of Object.keys(item)) {
+                existing[key] = item[key];
+            }
+            notifyItem(before, existing);
+            return existing;
         },
         update(id, patch) {
             const i = index.get(id);
             if (i == null) return undefined;
-            const before = {
-                ...(items[i]?.__raw || items[i])
-            };
-            const next = typeof patch === 'function' ? patch(items[i]) : patch;
-            if (next && next !== items[i]) Object.assign(items[i], next);
-            notifyItem(before, items[i]);
-            return items[i];
+            const item = items[i];
+            const before = { ...(item?.__raw || item) };
+            const next = typeof patch === 'function' ? patch(item) : patch;
+            if (next && next !== item) {
+                for (const key of Object.keys(next)) {
+                    item[key] = next[key];
+                }
+            }
+            notifyItem(before, item);
+            return item;
         },
         delete(id) {
             const i = index.get(id);
@@ -202,6 +206,7 @@ export function collection(initial = [], options = {}) {
             return items.length;
         },
         toJSON() {
+            version.value;
             return items.map(x => x?.__raw || x);
         },
         transaction(fn) {

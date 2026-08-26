@@ -135,7 +135,7 @@ export class QueryClient {
         this.persistence = options.persistence || null;
         this.listeners = new Set();
         this._started = false;
-        if (this.persistence) this.restore().catch(() => { });
+        if (this.persistence) this.restore().catch(e => console.warn('[lithe:data] Failed to restore query cache:', e));
         if (options.autoStart !== false) this.start();
     }
     getEntry<T = unknown>(key: QueryKey | string): QueryEntry<T> {
@@ -240,7 +240,7 @@ export class QueryClient {
         entry.data.value = typeof updater === 'function' ? updater(entry.data.peek()) : updater;
         entry.updatedAt = Date.now();
         if (tags) entry.tags = new Set(tags);
-        this.persist().catch(() => { });
+        this.persist().catch(e => console.warn('[lithe:data] Failed to persist after setQueryData:', e));
         return entry.data.peek();
     }
     getQueryData<T = unknown>(key: QueryKey): T | undefined {
@@ -257,7 +257,7 @@ export class QueryClient {
             type: 'invalidate',
             key: hash
         });
-        this.refetchStale('invalidate').catch(() => { });
+        this.refetchStale('invalidate').catch(e => console.warn('[lithe:data] Failed to refetch stale:', e));
     }
     invalidateTags(tags: string | string[]): void {
         const wanted = new Set(Array.isArray(tags) ? tags : [tags]);
@@ -266,7 +266,7 @@ export class QueryClient {
             type: 'invalidateTags',
             tags: [...wanted]
         });
-        this.refetchStale('invalidateTags').catch(() => { });
+        this.refetchStale('invalidateTags').catch(e => console.warn('[lithe:data] Failed to refetch stale tags:', e));
     }
     async refetchStale(reason = 'manual'): Promise<void> {
         const jobs = [];
@@ -294,7 +294,7 @@ export class QueryClient {
             clearTimeout(entry.gcTimer);
         }
         this.cache.clear();
-        this.persist().catch(() => { });
+        this.persist().catch(e => console.warn('[lithe:data] Failed to persist after clear:', e));
     }
     dehydrate(): Array<{
         key: string;
@@ -390,7 +390,7 @@ export function query<T = unknown>(options: QueryOptions<T>): QueryResult<T> {
             force
         });
     };
-    if (options.enabled !== false) refresh(false).catch(() => { });
+    if (options.enabled !== false) refresh(false).catch(e => console.warn('[lithe:data] Failed to fetch query:', e));
     return {
         get data() {
             return entry.data.value;
@@ -432,17 +432,22 @@ export function infiniteQuery<T = unknown, P = unknown>(options: any) {
         loading = signal(false),
         error = signal(null),
         hasNext = signal(true);
+    let activeController: AbortController | null = null;
     const baseKey = () => typeof options.key === 'function' ? options.key() : options.key;
     async function fetchPage(pageParam, replace = false) {
+        if (activeController) activeController.abort('superseded');
+        const controller = new AbortController();
+        activeController = controller;
         loading.value = true;
         error.value = null;
         try {
             const index = replace ? 0 : pages.peek().length;
             const data = await (options.fetch || options.queryFn)({
                 pageParam,
-                signal: new AbortController().signal,
+                signal: controller.signal,
                 pageIndex: index
             });
+            if (controller.signal.aborted) return;
             batch(() => {
                 pages.value = replace ? [data] : [...pages.peek(), data];
                 pageParams.value = replace ? [pageParam] : [...pageParams.peek(), pageParam];
@@ -451,14 +456,16 @@ export function infiniteQuery<T = unknown, P = unknown>(options: any) {
             });
             return data;
         } catch (e) {
+            if (controller.signal.aborted) return;
             error.value = e;
             throw e;
         } finally {
+            if (activeController === controller) activeController = null;
             loading.value = false;
         }
     }
     const initial = options.initialPageParam;
-    if (options.enabled !== false) fetchPage(initial, true).catch(() => { });
+    if (options.enabled !== false) fetchPage(initial, true).catch(e => console.warn('[lithe:data] Failed to fetch initial page:', e));
     return {
         get pages() {
             return pages.value;
@@ -574,7 +581,9 @@ export function createStoragePersister(storage, key = 'lithe:query-cache') {
         async save(snapshot) {
             try {
                 await storage.setItem(key, JSON.stringify(snapshot));
-            } catch { }
+            } catch (e) {
+                console.warn('[lithe:data] Failed to persist query cache:', e);
+            }
         }
     };
 }

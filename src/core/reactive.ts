@@ -706,6 +706,26 @@ export function state<T>(target: T): T {
     proxyCache.set(proxy, proxy);
     return proxy as T;
 }
+function deepEqual(a: unknown, b: unknown, depth = 0, seen?: Set<object>): boolean {
+    if (Object.is(a, b)) return true;
+    if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+    if (depth > 5) return false;
+    if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+    if (a instanceof RegExp && b instanceof RegExp) return a.source === b.source && a.flags === b.flags;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (!seen) seen = new Set();
+    if (seen.has(a as object) || seen.has(b as object)) return false;
+    seen.add(a as object);
+    seen.add(b as object);
+    const keysA = Object.keys(a as object);
+    const keysB = Object.keys(b as object);
+    if (keysA.length !== keysB.length) return false;
+    for (const key of keysA) {
+        if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+        if (!deepEqual((a as any)[key], (b as any)[key], depth + 1, seen)) return false;
+    }
+    return true;
+}
 export function watch<T>(source: Signal<T> | ReadonlySignal<T> | (() => T), callback: (value: T, previous: T | undefined) => void, options: ObserverOptions & {
     immediate?: boolean;
     deep?: boolean;
@@ -720,7 +740,8 @@ export function watch<T>(source: Signal<T> | ReadonlySignal<T> | (() => T), call
             if (options.immediate) callback(next, undefined);
             return;
         }
-        if (!Object.is(next, previous) || options.deep) {
+        const changed = options.deep ? !deepEqual(next, previous) : !Object.is(next, previous);
+        if (changed) {
             const old = previous;
             previous = next;
             callback(next, old);

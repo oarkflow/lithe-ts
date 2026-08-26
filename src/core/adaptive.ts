@@ -45,7 +45,7 @@ export function adaptivePriority(kind = 'normal') {
     return kind;
 }
 export function adaptiveSchedule(task, kind = 'normal') {
-    if (typeof navigator !== 'undefined' && !batteryInit) initBatteryAdaptation().catch(() => { });
+    if (typeof navigator !== 'undefined' && !batteryInit) initBatteryAdaptation().catch(e => console.warn('[lithe:adaptive] Battery adaptation failed:', e));
     return schedule(task, adaptivePriority(kind));
 }
 export async function batteryProfile() {

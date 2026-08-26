@@ -19,6 +19,7 @@ import { h } from '../src/dom/vnode.ts';
 import { renderToStream, streamBoundary } from '../src/server/ssr.ts';
 import { createDevtools } from '../src/devtools/devtools.ts';
 import { createScope } from '../src/core/owner.ts';
+import { effect } from '../src/core/reactive.ts';
 import { installDelegatedEvents, setDelegatedEvent } from '../src/dom/events.ts';
 import { __setAttribute } from '../src/dom/dom.ts';
 import { capturedEventSymbol } from '../src/dom/event-symbol.ts';
@@ -57,6 +58,17 @@ test('schema emits JSON Schema', () => { const s = object({ name: string().min(2
 
 test('collection indexes and incremental predicates update only logical result', () => {
 	const c = collection([{ id: 1, status: 'open' }, { id: 2, status: 'closed' }]); const idx = c.indexBy('status'); assert.deepEqual(idx.get('open').map(x => x.id), [1]); const q = c.incrementalWhere(x => x.status === 'open'); c.update(2, { status: 'open' }); assert.deepEqual(q.value.map(x => x.id).sort(), [1, 2]); q.dispose();
+});
+
+test('collection snapshots are reactive for list renders', () => {
+	const c = collection([{ id: '1', text: 'Offline task', done: false }]);
+	let snapshot;
+	const stop = effect(() => {
+		snapshot = c.toJSON();
+	}, { sync: true });
+	c.update('1', { done: true });
+	assert.deepEqual(snapshot, [{ id: '1', text: 'Offline task', done: true }]);
+	stop();
 });
 
 test('LWW CRDT deterministically resolves operations', () => { const a = new LWWMap('a'), b = new LWWMap('b'); const op = a.set('x', 1); b.apply(op); const newer = b.set('x', 2); a.apply(newer); assert.equal(a.get('x'), 2); assert.equal(b.get('x'), 2); });

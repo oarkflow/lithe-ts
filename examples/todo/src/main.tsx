@@ -13,6 +13,9 @@ const DevTools = lazyRoute(() => import('@/views/DevTools.tsx'), { exportName: '
 const UniversalState = lazyRoute(() => import('@/views/UniversalState.tsx'), { exportName: 'UniversalState' });
 const TailwindShowcase = lazyRoute(() => import('@/views/TailwindShowcase.tsx'), { exportName: 'TailwindShowcase' });
 const About = lazyRoute(() => import('@/views/About.tsx'), { exportName: 'About' });
+const ReactiveWatch = lazyRoute(() => import('@/views/ReactiveWatch.tsx'), { exportName: 'ReactiveWatch' });
+const InfiniteScroll = lazyRoute(() => import('@/views/InfiniteScroll.tsx'), { exportName: 'InfiniteScroll' });
+const OfflineSync = lazyRoute(() => import('@/views/OfflineSync.tsx'), { exportName: 'OfflineSync' });
 
 defineTheme({
 	color: { accent: '#6f5cff', background: '#0f1117' },
@@ -40,6 +43,9 @@ function NavigationBar() {
 				<Link to="/projects" class="nav-tab">📁 Projects</Link>
 				<Link to="/remote" class="nav-tab">☁️ Remote</Link>
 				<Link to="/types" class="nav-tab">🧬 Data Types</Link>
+				<Link to="/watch" class="nav-tab">🔍 Watch</Link>
+				<Link to="/infinite" class="nav-tab">♾️ Infinite</Link>
+				<Link to="/offline" class="nav-tab">📴 Offline</Link>
 				<Link to="/tailwind" class="nav-tab">🎨 Tailwind</Link>
 				<Link to="/stats" class="nav-tab">📊 Stats</Link>
 				<Link to="/devtools" class="nav-tab">🛠️ DevTools</Link>
@@ -65,6 +71,9 @@ const router = createRouter({
 			{ path: '/projects', component: ProjectWorkspaces },
 			{ path: '/remote', component: RemoteSync },
 			{ path: '/types', component: UniversalState },
+			{ path: '/watch', component: ReactiveWatch },
+			{ path: '/infinite', component: InfiniteScroll },
+			{ path: '/offline', component: OfflineSync },
 			{ path: '/tailwind', component: TailwindShowcase },
 			{ path: '/stats', component: Stats },
 			{ path: '/devtools', component: DevTools },

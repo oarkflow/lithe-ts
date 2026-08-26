@@ -14,7 +14,9 @@ export function syncedCollection(name, options = {}) {
     if (storage && typeof storage.getItem === 'function' && !(storage.getItem(key) instanceof Promise)) {
         try {
             initial = JSON.parse(storage.getItem(key) || 'null') || initial;
-        } catch { }
+        } catch (e) {
+            console.warn('[lithe:sync] Failed to load collection state:', e);
+        }
     }
     const base = collection(initial, options),
         status = signal('idle'),
@@ -27,7 +29,9 @@ export function syncedCollection(name, options = {}) {
                 queued = await storage.getItem(queueKey);
             if (raw) base.replace(JSON.parse(raw));
             if (queued) pending.push(...JSON.parse(queued));
-        } catch { }
+        } catch (e) {
+            console.warn('[lithe:sync] Failed to restore collection from storage:', e);
+        }
         return base;
     })();
     const persist = async () => {
@@ -35,7 +39,9 @@ export function syncedCollection(name, options = {}) {
         try {
             await storage.setItem(key, JSON.stringify(base.toJSON()));
             await storage.setItem(queueKey, JSON.stringify(pending));
-        } catch { }
+        } catch (e) {
+            console.warn('[lithe:sync] Failed to persist collection state:', e);
+        }
     };
     const enqueue = op => {
         pending.push({

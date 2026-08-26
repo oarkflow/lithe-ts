@@ -51,6 +51,18 @@ export function About() {
 					<strong>🎨 Tailwind CSS Plugin (<code>lithe/tailwind</code>)</strong>:
 					Zero-runtime on-demand atomic utility compilation and theme integration.
 				</li>
+				<li>
+					<strong>🔍 Deep Reactive Watch (<code>watch()</code> with <code>deep: true</code>)</strong>:
+					Structural comparison for nested objects, batch update coalescing.
+				</li>
+				<li>
+					<strong>♾️ Infinite Queries (<code>infiniteQuery()</code>)</strong>:
+					Paginated data fetching with abort control and lazy page loading.
+				</li>
+				<li>
+					<strong>📴 Offline-First Sync (<code>syncedCollection</code>)</strong>:
+					Network state, mutation queues, and local-first data with automatic sync.
+				</li>
 			</ul>
 		</Panel>
 	</main>;

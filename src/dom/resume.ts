@@ -85,7 +85,9 @@ export function resumeDocument(root = document, options = {}) {
         const node = root.getElementById(options.stateId || '__LITHE_STATE__');
         if (node) try {
             state = JSON.parse(node.textContent || 'null');
-        } catch { }
+        } catch (e) {
+            console.warn('[lithe:dom] Failed to parse resume state:', e);
+        }
     }
     if (state?.signals) disposersEarly.push(installSignalSnapshot(state.signals));
     if (state?.owners) restoreOwners(state.owners);
@@ -116,7 +118,9 @@ export function resumeDocument(root = document, options = {}) {
                         const raw = node.getAttribute?.(`data-lithe-cap-${type}`);
                         if (raw) try {
                             captures = JSON.parse(raw);
-                        } catch { }
+                        } catch (e) {
+                            console.warn('[lithe:dom] Failed to parse event captures:', e);
+                        }
                         await fn.call(node, event, captures);
                     }
                     if (event.cancelBubble) break;

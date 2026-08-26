@@ -37,11 +37,15 @@ export function createMutationQueue(storageKey = 'lithe:mutation-queue') {
     let queue = [];
     try {
         queue = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    } catch { }
+    } catch (e) {
+        console.warn('[lithe:offline] Failed to load mutation queue:', e);
+    }
     const save = () => {
         try {
             localStorage.setItem(storageKey, JSON.stringify(queue));
-        } catch { }
+        } catch (e) {
+            console.warn('[lithe:offline] Failed to persist mutation queue:', e);
+        }
     };
     return {
         add(operation) {

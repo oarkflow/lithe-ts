@@ -49,6 +49,23 @@
 		"./vite": "./src/plugins/vite.ts",
 		"./rollup": "./src/plugins/rollup.ts",
 		"./babel": "./src/plugins/babel.ts",
-		"./tailwind": "./src/plugins/tailwind.ts"
+		"./tailwind": "./src/plugins/tailwind.ts",
+		"./data": "./src/data/index.ts",
+		"./collection": "./src/collection/index.ts",
+		"./ui": "./src/ui/index.ts",
+		"./virtual": "./src/virtual/index.ts",
+		"./grid": "./src/grid/index.ts",
+		"./image": "./src/image/index.ts",
+		"./animation": "./src/animation/index.ts",
+		"./worker": "./src/worker/index.ts",
+		"./offline": "./src/offline/index.ts",
+		"./sync": "./src/sync/index.ts",
+		"./interop": "./src/interop/index.ts",
+		"./observability": "./src/observability/index.ts",
+		"./permissions": "./src/permissions/index.ts",
+		"./testing": "./src/testing/index.ts",
+		"./head": "./src/head/index.ts",
+		"./app": "./src/app/index.ts",
+		"./rpc": "./src/server/index.ts"
 	}
 }
