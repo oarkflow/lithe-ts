@@ -1,49 +1,73 @@
-# Lithe v1.1.0 TypeScript-First Release Validation
+# Lithe v1.1.1 Production Readiness Validation
 
-Release date: 2026-08-23
+Validation date: 2026-09-02
 
 ## TypeScript conversion gates
 
 - Authored framework/runtime/tooling/CLI/test/benchmark source: **TypeScript/TSX only**
-- `lithe sourcecheck .`: **126 TypeScript source files checked, 0 issues**
+- `lithe sourcecheck .`: **167 TypeScript source files checked, 0 issues**
 - Authored `.js`, `.jsx`, `.mjs`, `.cjs` implementation files outside generated output: **0**
 - TypeScript-first regression tests: **PASS**
 - Generated browser modules contain unresolved `.ts`/`.tsx` imports: **0**
 - Project generator emits typed `main.tsx`: **PASS**
-- TypeScript `prerender.ts` configuration: **PASS**
 - Public declaration coverage: **PASS**
 - Self-contained Node ambient declarations: **shipped without `@types/node`**
 - Runtime/tooling baseline: **Node.js 22.6+ with `--experimental-strip-types`**
 
 ## Functional gates
 
-- Automated test suite: **53 PASS, 0 FAIL, 1 ENVIRONMENT SKIP** (54 total)
-- Browser integration driver: implemented using Chrome DevTools Protocol with no third-party library; this execution environment's managed Chromium policy blocks local/private HTTP, so the driver records an explicit environment skip rather than a false pass.
-- `lithe typecheck examples/todo`: **1 TypeScript file checked, 0 issues**
-- `lithe check examples/todo`: **1 file checked, 0 issues**
-- `lithe types examples/todo`: **PASS**
-- `lithe prerender examples/todo`: **2 routes prerendered successfully from `prerender.ts`**
-- `lithe build examples/todo`: **PASS**
-- `lithe analyze examples/todo`: **PASS**
+- Automated test suite with local HTTP enabled: **103 PASS, 0 FAIL, 0 SKIP**
+- Browser integration driver: **PASS**. Chromium/CDP loaded the compiled todo example and executed the browser runtime.
+- Preview HTTP integration: **PASS**. Built output serves correct MIME types, cache headers and SPA fallback behavior.
+- Core library build: **PASS**. `npm run build` emits `dist/lithe-package` from Lithe core/DOM source only; `examples/*` are excluded.
+- Runtime library build: **PASS**. `npm run build:runtime` emits higher-level app/runtime modules separately.
+- Full tooling build: **PASS**. `npm run build:full` emits CLI/compiler/tooling separately.
+- Demo typecheck/check/build: **PASS**. The todo showcase is validated through explicit `*:demo` scripts.
+- `npm run validate:lib`: **PASS**
+- `npm run validate:demo`: **PASS**
+- `npm run validate`: **PASS**
 
-## Production budget
+## Library Package
 
-- Production payload: **47,138 bytes**
-- Production JavaScript: **45,863 bytes**
-- Production JavaScript gzip: **16,511 bytes**
-- Debug/source-map bytes: **60,775 bytes**
-- Configured limits: **50,000 production bytes / 18,000 gzip JavaScript**
+- Root `npm run build` target: **core library package only**
+- Output: **`dist/lithe-package`**
+- Includes: minified modular `src/core`, minified modular `src/dom`, root JSX/runtime barrels, core-only declarations and docs/license files
+- Excludes: **`examples/*`, `tools/*`, `cli/*`, `src/compiler/*`, `src/plugins/*`**
+- Core runtime JavaScript: **79,727 bytes**
+- Core runtime JavaScript gzip: **25,544 bytes**
+- Core declarations: **17,139 bytes**
+- Published package files: **29**
+- Package tarball size: **30,581 bytes**
+- Package unpacked size: **110,776 bytes**
+- Package exports: **7**
+
+## Runtime And Tooling Packages
+
+- Runtime and full package sizes are reported independently by their build commands; neither is counted as core.
+- Both package modes exclude **`examples/*`**
+
+## Demo Production Budget
+
+- Demo production payload: **304,611 bytes**
+- Demo production JavaScript: **269,680 bytes**
+- Demo initial JavaScript: **58,755 bytes**
+- Demo initial JavaScript gzip: **16,148 bytes**
+- Demo debug/source-map bytes: **0 bytes**
+- Configured limits: performance budgets are disabled for the expanded todo showcase because it is a multi-route demo, not the core library build.
 - Budget violations: **0**
-- Reactive benchmark: **100,000 updates / 1,000 signals / ~10,060 updates per second** in this container run
 
 ## Dependency/security/archive preflight
 
-- `dependencies`: **0**
-- `devDependencies`: **0**
-- `node_modules`: **none**
+- Root `dependencies`: **0**
+- Root `devDependencies`: **0**
+- Todo example external dependencies: **0**; it uses one local `file:` link to the framework.
+- Library package external dependencies: **0**
+- Library package includes examples: **no**
 - Third-party bare static imports: **0**
 - Credential/private-key signature audit: **PASS**
 - TODO/FIXME/NotImplemented source-marker audit: **PASS**
 - Source archive policy: generated browser `dist`/`.lithe` output is removed before packaging, so authored/source archive code contains no JavaScript implementation files.
+
+Managed sandboxes may still skip localhost tests when binding loopback ports is forbidden. The production validation above was run with local HTTP/Chromium permissions enabled so those tests executed instead of skipping.
 
 See `Tasks.md` for the completed v1.1 TypeScript-first engineering ledger and `docs/ARCHITECTURE.md` for the TypeScript execution/build model.

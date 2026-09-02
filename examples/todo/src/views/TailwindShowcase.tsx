@@ -13,7 +13,7 @@ export function TailwindShowcase() {
 	const searchQuery = signal('');
 	const activeColor = signal('indigo');
 	const animationType = signal<'spin' | 'ping' | 'pulse' | 'bounce'>('pulse');
-	const glassBlur = signal<'sm' | 'md' | 'lg' | 'xl' | '2xl'>('xl');
+	const glassBlur = signal<'none' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl'>('xl');
 
 	const categories = [
 		{ id: 'all', label: 'All Components' },
@@ -298,9 +298,10 @@ export function TailwindShowcase() {
 										<h3 class="text-sm font-bold uppercase tracking-wider text-slate-400">Toggle Switches & Binary Signals</h3>
 										<div class="flex flex-col md:flex-row gap-6">
 											{/* Toggle 1 */}
-											<div
+											<button
+												type="button"
 												onClick={() => toggleState.value = !toggleState.value}
-												class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-4 cursor-pointer hover:border-slate-700 transition-all flex-1 select-none"
+												class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-4 cursor-pointer hover:border-slate-700 transition-all flex-1 select-none text-left"
 											>
 												<div class="text-xs font-medium text-slate-300">
 													Auto-Compile CSS: <span class={() => toggleState.value ? 'text-emerald-400 font-bold' : 'text-slate-500'}>{() => toggleState.value ? 'ENABLED' : 'PAUSED'}</span>
@@ -308,12 +309,13 @@ export function TailwindShowcase() {
 												<div class={() => `w-12 h-6 rounded-full p-1 transition-all ${toggleState.value ? 'bg-emerald-500' : 'bg-slate-700'}`}>
 													<div class={() => `w-4 h-4 rounded-full bg-white transition-all transform ${toggleState.value ? 'translate-x-6' : 'translate-x-0'}`}></div>
 												</div>
-											</div>
+											</button>
 
 											{/* Toggle 2 */}
-											<div
+											<button
+												type="button"
 												onClick={() => switchState.value = !switchState.value}
-												class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-4 cursor-pointer hover:border-slate-700 transition-all flex-1 select-none"
+												class="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-4 cursor-pointer hover:border-slate-700 transition-all flex-1 select-none text-left"
 											>
 												<div class="text-xs font-medium text-slate-300">
 													Minification Engine: <span class={() => switchState.value ? 'text-indigo-400 font-bold' : 'text-slate-500'}>{() => switchState.value ? 'ACTIVE' : 'OFF'}</span>
@@ -321,7 +323,7 @@ export function TailwindShowcase() {
 												<div class={() => `w-12 h-6 rounded-full p-1 transition-all ${switchState.value ? 'bg-indigo-600' : 'bg-slate-700'}`}>
 													<div class={() => `w-4 h-4 rounded-full bg-white transition-all transform ${switchState.value ? 'translate-x-6' : 'translate-x-0'}`}></div>
 												</div>
-											</div>
+											</button>
 										</div>
 									</div>
 								</div>
@@ -553,10 +555,11 @@ export function TailwindShowcase() {
 									<h3 class="text-base font-bold text-white">Form Inputs & Interactive Controls</h3>
 									<div class="flex flex-col gap-5">
 										<div>
-											<label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+											<label htmlFor="tailwind-search-query" class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
 												Search Query Signal
 											</label>
 											<input
+												id="tailwind-search-query"
 												type="text"
 												value={() => searchQuery.value}
 												onInput={(e: any) => searchQuery.value = e.target.value}

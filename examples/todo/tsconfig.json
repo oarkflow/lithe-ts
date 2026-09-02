@@ -13,7 +13,8 @@
     "paths": {
       "lithe": ["../../types/lithe.d.ts", "../../src/index.ts"],
       "lithe/*": ["../../types/lithe.d.ts", "../../src/*"],
-      "@lithe/*": ["../../types/lithe.d.ts", "../../src/*"]
+      "@lithe/*": ["../../types/lithe.d.ts", "../../src/*"],
+      "@/*": ["src/*"]
     },
     "lib": [
       "ES2024",

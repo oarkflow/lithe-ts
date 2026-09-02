@@ -22,7 +22,7 @@ This is the canonical progress tracker for the zero-third-party-dependency Lithe
 - [x] Performance budgets are enforced by production builds.
 - [x] Public declarations cover every official runtime export.
 - [x] Release suite includes compiler, runtime, SSR, resume, server split, security, worker, CRDT, router, forms, query, build and release tests.
-- [x] Custom dependency-free Chromium/CDP integration driver exists; current CI/container policy can explicitly skip when local/private HTTP is blocked instead of reporting a false pass.
+- [x] Custom dependency-free Chromium/CDP integration driver exists, passes when local HTTP is permitted, and explicitly skips when a managed environment blocks loopback/private HTTP instead of reporting a false pass.
 
 ## 1. Reactive core
 
@@ -267,7 +267,7 @@ This is the canonical progress tracker for the zero-third-party-dependency Lithe
 - [x] DOM/browser testing helpers.
 - [x] Node unit/integration/release suite.
 - [x] Zero-dependency Chromium DevTools Protocol browser driver.
-- [x] Browser-policy block detection produces an explicit environment skip, never a false success.
+- [x] Browser/local HTTP tests pass with localhost permissions enabled, while browser-policy block detection still produces an explicit environment skip rather than a false success in restricted environments.
 - [x] Reactive benchmark.
 
 ## 16. Tooling/build/CLI
@@ -315,10 +315,10 @@ Run for every release:
 
 ```bash
 node --experimental-strip-types cli/lithe.ts sourcecheck .
+npm run build
+npm run validate:lib
 node --experimental-strip-types --test tests/*.test.ts
-node --experimental-strip-types cli/lithe.ts typecheck examples/todo
-node --experimental-strip-types cli/lithe.ts check examples/todo
-node --experimental-strip-types cli/lithe.ts build examples/todo
+npm run validate:demo
 node --experimental-strip-types cli/lithe.ts analyze examples/todo
 node --experimental-strip-types benchmarks/reactive.ts
 ```
@@ -326,6 +326,10 @@ node --experimental-strip-types benchmarks/reactive.ts
 Then verify:
 
 - [x] `package.json` has empty dependencies/devDependencies.
+- [x] Root `npm run build` emits the Lithe library package only, without building or packaging examples.
+- [x] Root `npm run build` targets the core reactive DOM package; runtime and full tooling packages use explicit scripts.
+- [x] Package allowlists exclude examples from library archives.
+- [x] Demo/showcase validation is explicit through demo scripts.
 - [x] No `node_modules` directory is included.
 - [x] No generated secrets/private credentials are included.
 - [x] No unknown third-party bare imports are present.
@@ -343,6 +347,6 @@ Lithe v1.1 is complete for its declared zero-third-party scope. The following ar
 4. Image transcoding uses native browser codecs. Lithe does not bundle an AV1/WebP codec implementation.
 5. React/Vue/Svelte bridges accept those runtimes from the host application instead of bundling them.
 6. Native/mobile support is the framework-independent host renderer protocol; platform shells/drivers can implement it without changing the core.
-7. The browser integration test is implemented; whether it executes is determined by the machine's browser/network policy.
+7. The browser integration test is implemented and passes when local HTTP is permitted; in restricted environments, execution is determined by the machine's browser/network policy.
 
 **v1.1 implementation backlog: empty.**

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { walk, BUILTINS, exists } from './shared.ts';
+import { walk, BUILTINS, exists, loadProjectAliases } from './shared.ts';
 import { compileModule } from '../src/compiler/jsx.ts';
 import { stripTypeScript } from '../src/compiler/typescript.ts';
 import { validateJavaScript } from '../src/compiler/parser.ts';
@@ -11,15 +11,30 @@ function lineOf(code, index) {
 	return code.slice(0, index).split('\n').length;
 }
 
-function resolveLocal(file, spec) {
-	if (!spec.startsWith('.')) return null;
-	let p = path.resolve(path.dirname(file), spec);
+function resolveCandidates(p) {
 	const candidates = [
 		p, p + '.js', p + '.jsx', p + '.ts', p + '.tsx',
 		path.join(p, 'index.js'), path.join(p, 'index.jsx'),
 		path.join(p, 'index.ts'), path.join(p, 'index.tsx')
 	];
 	return candidates;
+}
+
+function resolveLocal(file, spec) {
+	if (!spec.startsWith('.')) return null;
+	return resolveCandidates(path.resolve(path.dirname(file), spec));
+}
+
+function resolveAlias(root, aliases, spec) {
+	for (const [aliasKey, targetDir] of Object.entries(aliases)) {
+		if (spec !== aliasKey && !spec.startsWith(aliasKey + '/')) continue;
+		const remainder = spec === aliasKey ? '' : spec.slice(aliasKey.length + 1);
+		const resolved = path.resolve(root, targetDir, remainder);
+		const relative = path.relative(root, resolved);
+		if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
+		return resolveCandidates(resolved);
+	}
+	return null;
 }
 
 function clientFile(file) {
@@ -53,6 +68,7 @@ function serverFile(file) {
 
 export async function checkProject(projectDir) {
 	const root = path.resolve(projectDir);
+	const projectAliases = await loadProjectAliases(root);
 	const files = (await walk(path.join(root, 'src'))).filter(f => /\.(js|jsx|ts|tsx)$/.test(f));
 	const issues = [];
 	const graph = new Map();
@@ -68,7 +84,8 @@ export async function checkProject(projectDir) {
 
 		while ((match = importRE.exec(code))) {
 			const spec = match[1];
-			if (!spec.startsWith('.') && !spec.startsWith('/') &&
+			const aliasCandidates = resolveAlias(root, projectAliases, spec);
+			if (!spec.startsWith('.') && !spec.startsWith('/') && !aliasCandidates &&
 				!spec.startsWith('@lithe/') && !spec.startsWith('lithe/') &&
 				!BUILTINS.has(spec)) {
 				issues.push({
@@ -80,6 +97,13 @@ export async function checkProject(projectDir) {
 			}
 			if (spec.startsWith('.')) {
 				for (const c of resolveLocal(file, spec)) {
+					if (await exists(c)) {
+						deps.push(c);
+						break;
+					}
+				}
+			} else if (aliasCandidates) {
+				for (const c of aliasCandidates) {
 					if (await exists(c)) {
 						deps.push(c);
 						break;

@@ -12,6 +12,15 @@ export interface DoctorCheck {
 	detail: string;
 }
 
+function dependencyPolicy(pkg) {
+	const deps = Object.entries(pkg.dependencies || {});
+	const devDeps = Object.entries(pkg.devDependencies || {});
+	const externalDeps = deps.filter(([, value]) => !String(value).startsWith('file:')).length;
+	const externalDevDeps = devDeps.filter(([, value]) => !String(value).startsWith('file:')).length;
+	const localLinks = deps.length + devDeps.length - externalDeps - externalDevDeps;
+	return { externalDeps, externalDevDeps, localLinks };
+}
+
 export async function doctorProject(projectDir = '.', options: { build?: boolean; sourceRoot?: string } = {}) {
 	const root = path.resolve(projectDir);
 	const checks: DoctorCheck[] = [];
@@ -19,12 +28,12 @@ export async function doctorProject(projectDir = '.', options: { build?: boolean
 	const pkgFile = path.join(root, 'package.json');
 	if (await exists(pkgFile)) {
 		const pkg = JSON.parse(await fs.readFile(pkgFile, 'utf8'));
-		const deps = Object.keys(pkg.dependencies || {}).length;
-		const devDeps = Object.keys(pkg.devDependencies || {}).length;
+		const { externalDeps, externalDevDeps, localLinks } = dependencyPolicy(pkg);
+		const localDetail = localLinks ? `, ${localLinks} local file link(s)` : '';
 		checks.push({
 			name: 'dependency policy',
-			status: deps || devDeps ? 'warn' : 'pass',
-			detail: `${deps} dependencies, ${devDeps} devDependencies`
+			status: externalDeps || externalDevDeps ? 'warn' : 'pass',
+			detail: `${externalDeps} external dependencies, ${externalDevDeps} external devDependencies${localDetail}`
 		});
 	} else {
 		checks.push({ name: 'dependency policy', status: 'warn', detail: 'package.json not found' });

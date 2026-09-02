@@ -29,6 +29,7 @@ import { createMemoryStorage } from '../src/offline/storage.ts';
 import { imageMetadata } from '../tools/image.ts';
 import { generateTypes } from '../tools/types.ts';
 import { prerenderProject } from '../tools/prerender.ts';
+import { doctorProject } from '../tools/doctor.ts';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -122,5 +123,41 @@ test('framework security check rejects javascript anchors and warns about target
 		assert.equal(result.ok, false);
 		assert.ok(result.issues.some(x => x.code === 'SEC003'));
 		assert.ok(result.issues.some(x => x.code === 'SEC002'));
+	} finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('framework check resolves project aliases before dependency checks', async () => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lithe-alias-'));
+	try {
+		await fs.mkdir(path.join(root, 'src', 'lib'), { recursive: true });
+		await fs.writeFile(path.join(root, 'tsconfig.json'), JSON.stringify({
+			compilerOptions: {
+				baseUrl: '.',
+				paths: { '@/*': ['src/*'] }
+			}
+		}));
+		await fs.writeFile(path.join(root, 'src', 'entry.client.ts'), `import { token } from '@/lib/secret.ts'; export const value=token;`);
+		await fs.writeFile(path.join(root, 'src', 'lib', 'secret.ts'), `export const token=process.env.API_SECRET;`);
+		const result = await checkProject(root);
+		assert.equal(result.issues.some(x => x.code === 'DEP001'), false, JSON.stringify(result.issues, null, 2));
+		assert.equal(result.ok, false);
+		assert.ok(result.issues.some(x => x.code === 'SECRET002'), JSON.stringify(result.issues, null, 2));
+	} finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('doctor dependency policy allows local file links', async () => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), 'lithe-doctor-'));
+	try {
+		await fs.mkdir(path.join(root, 'src'), { recursive: true });
+		await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({
+			type: 'module',
+			dependencies: { lithe: 'file:../..' },
+			devDependencies: {}
+		}));
+		await fs.writeFile(path.join(root, 'src', 'main.ts'), `export const ready=true;`);
+		const result = await doctorProject(root, { build: false, sourceRoot: root });
+		const policy = result.checks.find(x => x.name === 'dependency policy');
+		assert.equal(policy?.status, 'pass');
+		assert.match(policy?.detail || '', /0 external dependencies/);
 	} finally { await fs.rm(root, { recursive: true, force: true }); }
 });

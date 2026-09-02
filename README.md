@@ -7,11 +7,10 @@ The repository has **no `dependencies`, no `devDependencies`, and no `node_modul
 ## Quick start
 
 ```bash
-node --experimental-strip-types cli/lithe.ts check examples/todo
-node --experimental-strip-types cli/lithe.ts typecheck examples/todo
+npm run build          # build the Lithe library package
+npm run validate:lib   # validate the library package only
+npm run validate:demo  # validate the todo showcase separately
 node --experimental-strip-types cli/lithe.ts dev examples/todo --port=3000
-node --experimental-strip-types cli/lithe.ts build examples/todo
-node --experimental-strip-types cli/lithe.ts analyze examples/todo
 node --experimental-strip-types --test tests/*.test.ts
 ```
 
@@ -125,6 +124,25 @@ lithe image <file>
 ```
 
 When running directly from this repository, use `node --experimental-strip-types cli/lithe.ts ...`, or execute the `lithe` bin after linking the package. No JavaScript-authored implementation files are required.
+
+## Library And Demo Builds
+
+The root package build is for Lithe itself:
+
+```bash
+npm run build
+```
+
+That emits a distributable zero-dependency core package at `dist/lithe-package` with compiled JavaScript, declarations and package exports for `lithe`, `lithe/core`, `lithe/dom` and JSX runtime entrypoints. It does not build or include `examples/*`, CLI tooling, compiler modules or plugin adapters.
+Use `npm run build:runtime` for the full app/runtime surface and `npm run build:full` for CLI/compiler/tooling distribution.
+
+The todo app is a separate feature showcase:
+
+```bash
+npm run build:demo
+```
+
+Demo output is intentionally larger because it includes many lazy routes, UI states, offline/sync examples, devtools screens and a Tailwind utility showcase. Treat demo bytes as showcase payload, not the core library footprint.
 
 ## Production model
 

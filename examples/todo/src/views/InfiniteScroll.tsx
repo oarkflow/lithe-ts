@@ -60,10 +60,19 @@ export function InfiniteScroll() {
 	const addMutation = mutation({
 		mutationFn: async (title: string) => {
 			await new Promise(r => setTimeout(r, 300));
-			return { id: Date.now(), title, excerpt: 'New article added via mutation', author: 'You', createdAt: new Date().toISOString(), tags: ['new'] };
+			const article: Article = {
+				id: Date.now(),
+				title,
+				excerpt: 'New article added via mutation',
+				author: 'You',
+				createdAt: new Date().toISOString(),
+				tags: ['new']
+			};
+			mockArticles.unshift(article);
+			return article;
 		},
 		onSuccess() {
-			articlesQuery.refresh();
+			return articlesQuery.refresh();
 		}
 	});
 
@@ -211,7 +220,7 @@ export function InfiniteScroll() {
 									<span class="article-id">#{article.id}</span>
 									<span class="article-date">{new Date(article.createdAt).toLocaleDateString()}</span>
 								</div>
-								<h3 class="article-title">{article.title}</h3>
+								<h2 class="article-title">{article.title}</h2>
 								<p class="article-excerpt">{article.excerpt}</p>
 								<div class="article-footer">
 									<span class="article-author">By {article.author}</span>

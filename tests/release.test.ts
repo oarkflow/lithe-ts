@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { declarationCoverage, typecheckProject } from '../tools/typecheck.ts';
 import { generateTypes } from '../tools/types.ts';
 import { checkProject } from '../tools/check.ts';
+import { buildLibraryPackage } from '../tools/build-library.ts';
 import { prefetchBudget, deviceProfile } from '../src/core/adaptive.ts';
 import { signal } from '../src/core/reactive.ts';
 import { compiledTemplate } from '../src/dom/dom.ts';
@@ -22,6 +24,58 @@ async function tempProject(prefix='lithe-release-') {
 test('all official runtime exports are covered by shipped declarations', async () => {
   const issues=await declarationCoverage();
   assert.deepEqual(issues,[]);
+});
+
+test('core library build emits only reactive DOM package surface', async () => {
+  const out=await fs.mkdtemp(path.join(os.tmpdir(),'lithe-lib-'));
+  try {
+    const result=await buildLibraryPackage({outDir:out,mode:'core'});
+    assert.ok(result.files.includes('package.json'));
+    assert.ok(result.files.includes('src/core/index.js'));
+    assert.ok(result.files.includes('src/dom/index.js'));
+    assert.equal(result.files.some(x=>x.startsWith('src/router/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('src/server/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('src/data/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('cli/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('tools/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('src/compiler/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('src/plugins/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('examples/')),false);
+    assert.ok(result.runtimeBytes<85_000,`core runtime is ${result.runtimeBytes} bytes`);
+    assert.ok(result.runtimeGzipBytes<30_000,`core runtime gzip is ${result.runtimeGzipBytes} bytes`);
+    assert.ok(result.declarationBytes<25_000,`core declarations are ${result.declarationBytes} bytes`);
+    const declarations=await fs.readFile(path.join(out,'types/lithe.d.ts'),'utf8');
+    assert.match(declarations,/declare module '@lithe\/core'/);
+    assert.doesNotMatch(declarations,/declare module '@lithe\/router'/);
+    const runtime=await import(pathToFileURL(path.join(out,'src/runtime/index.js')).href);
+    const count=runtime.signal(1);
+    assert.equal(count.value,1);
+  } finally { await fs.rm(out,{recursive:true,force:true}); }
+});
+
+test('runtime library build emits app modules without CLI tooling or examples', async () => {
+  const out=await fs.mkdtemp(path.join(os.tmpdir(),'lithe-runtime-'));
+  try {
+    const result=await buildLibraryPackage({outDir:out,mode:'runtime'});
+    assert.ok(result.files.includes('src/router/index.js'));
+    assert.ok(result.files.includes('src/server/index.js'));
+    assert.ok(result.files.includes('src/data/index.js'));
+    assert.equal(result.files.some(x=>x.startsWith('cli/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('tools/')),false);
+    assert.equal(result.files.some(x=>x.startsWith('examples/')),false);
+  } finally { await fs.rm(out,{recursive:true,force:true}); }
+});
+
+test('full library build emits CLI and tooling without examples', async () => {
+  const out=await fs.mkdtemp(path.join(os.tmpdir(),'lithe-full-'));
+  try {
+    const result=await buildLibraryPackage({outDir:out,mode:'full'});
+    assert.ok(result.files.includes('cli/lithe.js'));
+    assert.ok(result.files.includes('tools/build.js'));
+    assert.ok(result.files.includes('src/compiler/jsx.js'));
+    assert.ok(result.files.includes('src/plugins/vite.js'));
+    assert.equal(result.files.some(x=>x.startsWith('examples/')),false);
+  } finally { await fs.rm(out,{recursive:true,force:true}); }
 });
 
 test('zero-dependency TypeScript/TSX checker accepts modern syntax through platform transformer', async () => {
