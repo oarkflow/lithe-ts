@@ -20,7 +20,7 @@ test('safe captured event handlers become independent lazy chunks and retain imp
 	const root = await project({
 		'public/index.html': '<!doctype html><div id="app"></div><script type="module" src="/src/main.jsx"></script>',
 		'src/api.js': 'export async function save(id){return id}',
-		'src/main.jsx': `import {mount} from '@lithe/dom'; import {save} from './api.ts'; function App(){const id=42;return <button onClick={()=>save(id)}>Save</button>} mount(document.querySelector('#app'),<App/>);`,
+		'src/main.jsx': `import {mount} from '@oarkflow/lithe/dom'; import {save} from './api.ts'; function App(){const id=42;return <button onClick={()=>save(id)}>Save</button>} mount(document.querySelector('#app'),<App/>);`,
 		'lithe.config.json': JSON.stringify({ performance: { totalBytes: 1000000, jsGzip: 1000000 } })
 	});
 	try { const { out, manifest } = await buildProject(root); assert.equal(manifest.eventChunks.length, 1); assert.equal(manifest.minified, true); assert.equal(manifest.sourceMaps, false); assert.equal((await fs.readdir(path.join(out, 'src'))).some(file => file.endsWith('.map')), false); const chunk = manifest.eventChunks[0].chunk; const main = await fs.readFile(path.join(out, 'src/main.js'), 'utf8'), event = await fs.readFile(path.join(out, '__lithe_events', chunk), 'utf8'); assert.match(main, /capturedEventSymbol\("\/__lithe_events\//); assert.doesNotMatch(main, /import\{save\}/); assert.match(event, /from"\/src\/api\.js"/); assert.equal(await fs.readFile(path.join(out, 'src/api.js'), 'utf8').then(() => true), true); } finally { await fs.rm(root, { recursive: true, force: true }); }
@@ -68,4 +68,3 @@ export function run() {
 test('minifier preserves ASI-sensitive newline after return', () => {
 	const out = minifyJS(`function f(){return\n{value:1}}`); assert.match(out, /return\n\{/); assert.doesNotThrow(() => new Function(out + ';return f')());
 });
-

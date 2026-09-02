@@ -1,4 +1,4 @@
-import { state } from 'lithe/core';
+import { state } from '@oarkflow/lithe/core';
 import type { Todo } from '../store/todoStore.ts';
 
 function TodoItem({

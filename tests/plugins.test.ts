@@ -11,7 +11,7 @@ test('litheVitePlugin transforms JSX and TSX modules', async () => {
 	assert.ok(config.esbuild);
 
 	const tsxSource = `
-		import { signal } from 'lithe/core';
+		import { signal } from '@oarkflow/lithe/core';
 		export function Counter() {
 			const count = signal(0);
 			return <button onClick={() => count.value++}>Count: {count.value}</button>;
@@ -21,7 +21,7 @@ test('litheVitePlugin transforms JSX and TSX modules', async () => {
 	const result = plugin.transform(tsxSource, '/app/src/Counter.tsx');
 	assert.ok(result);
 	assert.ok(result.code.includes('compiledElement("button"'));
-	assert.ok(result.code.includes('import { h, Fragment } from "lithe/dom"'));
+	assert.ok(result.code.includes('import { h, Fragment } from "@oarkflow/lithe/dom"'));
 });
 
 test('litheRollupPlugin transforms JSX with sourcemaps', async () => {
@@ -46,7 +46,7 @@ test('litheBabelPlugin supports standalone transform method', async () => {
 	assert.ok(plugin.visitor.Program);
 
 	const source = `
-		import { state } from 'lithe/core';
+		import { state } from '@oarkflow/lithe/core';
 		export const App = () => <div><span>Hello Lithe</span></div>;
 	`;
 
@@ -67,4 +67,3 @@ test('litheTailwindPlugin compiles utility classes and injects style tags', asyn
 	assert.ok(html.includes('<style data-lithe-tailwind>'));
 	assert.ok(html.includes('.test { color: red; }'));
 });
-

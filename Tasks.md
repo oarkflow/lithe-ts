@@ -330,6 +330,9 @@ Then verify:
 - [x] Root `npm run build` targets the core reactive DOM package; runtime and full tooling packages use explicit scripts.
 - [x] Package allowlists exclude examples from library archives.
 - [x] Demo/showcase validation is explicit through demo scripts.
+- [x] Public package imports use `@spbaniya/lithe` and its subpath exports exclusively.
+- [x] npm publishes one full, demo-free `@spbaniya/lithe` artifact; core/runtime builds remain local targets.
+- [x] npm dry-run, clean tarball install, package imports, CLI execution and generated-app build pass.
 - [x] No `node_modules` directory is included.
 - [x] No generated secrets/private credentials are included.
 - [x] No unknown third-party bare imports are present.

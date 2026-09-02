@@ -36,7 +36,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 test('TypeScript stripper and compiler handle typed TSX and static hoisting', () => {
 	const src = `interface User { name:string }\nconst n:number=1; export function Card(p:{name:string}){ return <div className="x">Hi</div> }`;
 	const stripped = stripTypeScript(src); assert.doesNotMatch(stripped, /interface User/); assert.doesNotMatch(stripped, /n:number/);
-	const c = compileModule(src, { typescript: true, runtimeImport: '@lithe/dom', filename: 'card.tsx' }); assert.match(c.code, /staticTemplate/); assert.ok(c.map); assert.deepEqual(c.diagnostics, []);
+	const c = compileModule(src, { typescript: true, runtimeImport: '@oarkflow/lithe/dom', filename: 'card.tsx' }); assert.match(c.code, /staticTemplate/); assert.ok(c.map); assert.deepEqual(c.diagnostics, []);
 });
 
 test('reactive IR detects computed cycles', () => {

@@ -1,5 +1,5 @@
-import { createContextStore, createStore, state } from 'lithe/core';
-import { Link } from 'lithe/router';
+import { createContextStore, createStore, state } from '@oarkflow/lithe/core';
+import { Link } from '@oarkflow/lithe/router';
 import { Panel } from '../components/Panel.tsx';
 import { ThemeToggle } from '../components/ThemeToggle.tsx';
 

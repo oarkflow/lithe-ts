@@ -8,12 +8,11 @@
     "strict": false,
     "skipLibCheck": true,
     "jsx": "preserve",
-    "jsxImportSource": "lithe",
+    "jsxImportSource": "@oarkflow/lithe",
     "baseUrl": ".",
     "paths": {
-      "lithe": ["../../types/lithe.d.ts", "../../src/index.ts"],
-      "lithe/*": ["../../types/lithe.d.ts", "../../src/*"],
-      "@lithe/*": ["../../types/lithe.d.ts", "../../src/*"],
+      "@oarkflow/lithe": ["../../types/lithe.d.ts", "../../src/index.ts"],
+      "@oarkflow/lithe/*": ["../../types/lithe.d.ts", "../../src/*"],
       "@/*": ["src/*"]
     },
     "lib": [

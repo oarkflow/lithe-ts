@@ -594,7 +594,7 @@ export function compileModule(source, options = {}) {
     code = placed.code;
     const changed = code !== original;
     if ((jsxChanged || lazy.changed || captured.changed || placed.changed) && options.injectRuntime !== false) {
-        const runtime = options.runtimeImport || '/@lithe/dom';
+        const runtime = options.runtimeImport || '/@oarkflow/lithe/dom';
         const imports = [];
         if (jsxChanged && !/\bimport\s*\{[^}]*\bh\b[^}]*\bFragment\b/.test(code)) imports.push(`import { h, Fragment } from ${JSON.stringify(runtime)};`);
         if (/\bcompiledTemplate\(/.test(code) && !/\bimport\s*\{[^}]*\bcompiledTemplate\b/.test(code)) imports.push(`import { compiledTemplate } from ${JSON.stringify(runtime)};`);
@@ -603,7 +603,7 @@ export function compileModule(source, options = {}) {
         if (/\blazyEvent\(/.test(code) && !/\bimport\s*\{[^}]*\blazyEvent\b/.test(code)) imports.push(`import { lazyEvent } from ${JSON.stringify(runtime)};`);
         if (/\beventSymbol\(/.test(code) && !/\bimport\s*\{[^}]*\beventSymbol\b/.test(code)) imports.push(`import { eventSymbol } from ${JSON.stringify(runtime)};`);
         if (/\bcapturedEventSymbol\(/.test(code) && !/\bimport\s*\{[^}]*\bcapturedEventSymbol\b/.test(code)) imports.push(`import { capturedEventSymbol } from ${JSON.stringify(runtime)};`);
-        if (/\b__litheWorker\(/.test(code) && !/\bimport\s*\{[^}]*\bworker\s+as\s+__litheWorker\b/.test(code)) imports.push(`import { worker as __litheWorker } from "@lithe/worker";`);
+        if (/\b__litheWorker\(/.test(code) && !/\bimport\s*\{[^}]*\bworker\s+as\s+__litheWorker\b/.test(code)) imports.push(`import { worker as __litheWorker } from "@oarkflow/lithe/worker";`);
         if (imports.length) code = `${imports.join('\n')}\n${code}`;
     }
     const graph = reactiveGraphIR(code, options.filename || '<module>'),

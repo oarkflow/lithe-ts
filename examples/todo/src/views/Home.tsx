@@ -1,6 +1,6 @@
-import { computed } from 'lithe/core';
-import { createForm, object, string } from 'lithe/forms';
-import { Link } from 'lithe/router';
+import { computed } from '@oarkflow/lithe/core';
+import { createForm, object, string } from '@oarkflow/lithe/forms';
+import { Link } from '@oarkflow/lithe/router';
 import { useTodoStore, type Todo } from '../store/todoStore.ts';
 import { Panel } from '../components/Panel.tsx';
 import { TodoForm } from '../components/TodoForm.tsx';

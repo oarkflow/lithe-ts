@@ -1,5 +1,5 @@
-import { computed } from 'lithe/core';
-import { Link } from 'lithe/router';
+import { computed } from '@oarkflow/lithe/core';
+import { Link } from '@oarkflow/lithe/router';
 import { useTodoStore, type Todo } from '../store/todoStore.ts';
 import { Panel } from '../components/Panel.tsx';
 import { ThemeToggle } from '../components/ThemeToggle.tsx';

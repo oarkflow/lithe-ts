@@ -1,7 +1,7 @@
-import { signal, state, computed, onCleanup } from 'lithe/core';
-import { createNetworkState, createMutationQueue } from 'lithe/offline';
-import { syncedCollection } from 'lithe/sync';
-import { Link } from 'lithe/router';
+import { signal, state, computed, onCleanup } from '@oarkflow/lithe/core';
+import { createNetworkState, createMutationQueue } from '@oarkflow/lithe/offline';
+import { syncedCollection } from '@oarkflow/lithe/sync';
+import { Link } from '@oarkflow/lithe/router';
 import { Panel } from '../components/Panel.tsx';
 import { ThemeToggle } from '../components/ThemeToggle.tsx';
 

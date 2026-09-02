@@ -1,7 +1,7 @@
-import { mount } from 'lithe/dom';
-import { createRouter, group, lazyRoute, Link } from 'lithe/router';
-import { createI18n } from 'lithe/i18n';
-import { defineTheme } from 'lithe/style';
+import { mount } from '@oarkflow/lithe/dom';
+import { createRouter, group, lazyRoute, Link } from '@oarkflow/lithe/router';
+import { createI18n } from '@oarkflow/lithe/i18n';
+import { defineTheme } from '@oarkflow/lithe/style';
 import { ThemeContext, useTheme } from '@/context/ThemeContext.tsx';
 import { ThemeToggle } from '@/components/ThemeToggle.tsx';
 

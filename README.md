@@ -6,6 +6,14 @@ The repository has **no `dependencies`, no `devDependencies`, and no `node_modul
 
 ## Quick start
 
+Install the published package:
+
+```bash
+npm install @spbaniya/lithe
+```
+
+Repository development commands:
+
 ```bash
 npm run build          # build the Lithe library package
 npm run validate:lib   # validate the library package only
@@ -27,8 +35,8 @@ The repository also ships minimal Node ambient shims in `types/node-shim.d.ts` s
 ## Core programming model
 
 ```tsx
-import { signal, computed } from '@lithe/core';
-import { mount } from '@lithe/dom';
+import { signal, computed } from '@spbaniya/lithe/core';
+import { mount } from '@spbaniya/lithe/dom';
 
 const count = signal<number>(0, { name:'count' });
 const doubled = computed(() => count.value * 2);
@@ -133,7 +141,7 @@ The root package build is for Lithe itself:
 npm run build
 ```
 
-That emits a distributable zero-dependency core package at `dist/lithe-package` with compiled JavaScript, declarations and package exports for `lithe`, `lithe/core`, `lithe/dom` and JSX runtime entrypoints. It does not build or include `examples/*`, CLI tooling, compiler modules or plugin adapters.
+That emits a distributable zero-dependency core package at `dist/lithe-package` with compiled JavaScript, declarations and package exports for `@spbaniya/lithe`, `@spbaniya/lithe/core`, `@spbaniya/lithe/dom` and JSX runtime entrypoints. It does not build or include `examples/*`, CLI tooling, compiler modules or plugin adapters.
 Use `npm run build:runtime` for the full app/runtime surface and `npm run build:full` for CLI/compiler/tooling distribution.
 
 The todo app is a separate feature showcase:
@@ -143,6 +151,15 @@ npm run build:demo
 ```
 
 Demo output is intentionally larger because it includes many lazy routes, UI states, offline/sync examples, devtools screens and a Tailwind utility showcase. Treat demo bytes as showcase payload, not the core library footprint.
+
+The npm release is the full, demo-free package so one version owns the complete public export map:
+
+```bash
+npm run pack:npm       # build and inspect the publishable tarball
+npm run publish:npm    # validate and publish @spbaniya/lithe publicly
+```
+
+Core and runtime builds remain local validation/size targets; they are not published as competing packages with the same name and version.
 
 ## Production model
 
@@ -179,7 +196,7 @@ Lithe includes official zero-dependency plugin adapters for third-party build sy
 ### Vite (`vite.config.ts`)
 ```ts
 import { defineConfig } from 'vite';
-import { litheVitePlugin } from 'lithe/vite';
+import { litheVitePlugin } from '@spbaniya/lithe/vite';
 
 export default defineConfig({
   plugins: [
@@ -193,7 +210,7 @@ export default defineConfig({
 
 ### Rollup (`rollup.config.js`)
 ```js
-import { litheRollupPlugin } from 'lithe/rollup';
+import { litheRollupPlugin } from '@spbaniya/lithe/rollup';
 
 export default {
   input: 'src/main.tsx',
@@ -206,11 +223,11 @@ export default {
 
 ### Babel (`.babelrc` or `babel.config.js`)
 ```js
-import { litheBabelPlugin } from 'lithe/babel';
+import { litheBabelPlugin } from '@spbaniya/lithe/babel';
 
 export default {
   plugins: [
-    [litheBabelPlugin, { runtimeImport: 'lithe/dom' }]
+    [litheBabelPlugin, { runtimeImport: '@spbaniya/lithe/dom' }]
   ]
 };
 ```
@@ -218,7 +235,7 @@ export default {
 ### Tailwind CSS Plugin (`lithe/tailwind`)
 Zero-runtime on-demand atomic CSS compiler and optimizer:
 ```ts
-import { compileTailwind, litheTailwindPlugin } from 'lithe/tailwind';
+import { compileTailwind, litheTailwindPlugin } from '@spbaniya/lithe/tailwind';
 
 // Programmatic compilation
 const css = await compileTailwind([sourceCode]);

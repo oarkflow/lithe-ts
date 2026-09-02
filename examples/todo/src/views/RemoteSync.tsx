@@ -1,6 +1,6 @@
-import { state } from 'lithe/core';
-import { Link } from 'lithe/router';
-import { query, mutation } from 'lithe/data';
+import { state } from '@oarkflow/lithe/core';
+import { Link } from '@oarkflow/lithe/router';
+import { query, mutation } from '@oarkflow/lithe/data';
 import { Panel } from '../components/Panel.tsx';
 import { ThemeToggle } from '../components/ThemeToggle.tsx';
 
@@ -12,7 +12,7 @@ interface RemoteTodo {
 
 // In-memory mock server database
 let serverDb: RemoteTodo[] = [
-	{ id: 101, title: 'Fetch remote tasks via @lithe/data query()', completed: true },
+	{ id: 101, title: 'Fetch remote tasks via @oarkflow/lithe/data query()', completed: true },
 	{ id: 102, title: 'Simulate network latency and optimistic mutations', completed: false },
 	{ id: 103, title: 'Automatic tag-based cache invalidation', completed: false }
 ];
@@ -69,7 +69,7 @@ export function RemoteSync() {
 		<header class="app-header">
 			<div class="header-branding">
 				<h1>☁️ Remote Data & Async Queries</h1>
-				<small class="tagline">Demonstrating <code>@lithe/data</code>: <code>query()</code> and <code>mutation()</code> with cache invalidation</small>
+				<small class="tagline">Demonstrating <code>@oarkflow/lithe/data</code>: <code>query()</code> and <code>mutation()</code> with cache invalidation</small>
 			</div>
 			<div class="header-nav">
 				<Link to="/" class="nav-link">🏠 Tasks</Link>
@@ -89,7 +89,7 @@ export function RemoteSync() {
 					{() => todoQuery.loading ? '🔄 Fetching...' : '🔄 Refetch API'}
 				</button>
 				<span class="cache-indicator">
-					{() => todoQuery.loading ? 'Fetching from mock server (400ms delay)...' : 'Data cached in @lithe/data QueryClient'}
+					{() => todoQuery.loading ? 'Fetching from mock server (400ms delay)...' : 'Data cached in @oarkflow/lithe/data QueryClient'}
 				</span>
 			</div>
 

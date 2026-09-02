@@ -47,7 +47,7 @@ export function splitServerImports(code, file, sourceRoot) {
 	);
 
 	if (needsHelper) {
-		code = `import { serverReference as __litheServerReference } from '@lithe/rpc';\n${code}`;
+		code = `import { serverReference as __litheServerReference } from '@oarkflow/lithe/rpc';\n${code}`;
 	}
 
 	return { code, refs };

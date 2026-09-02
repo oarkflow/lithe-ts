@@ -16,7 +16,7 @@
 		"clean": "rm -rf dist .lithe"
 	},
 	"dependencies": {
-		"lithe": "file:../.."
+		"@oarkflow/lithe": "file:../.."
 	},
 	"devDependencies": { }
 }

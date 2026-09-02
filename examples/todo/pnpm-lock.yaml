@@ -8,17 +8,17 @@ importers:
 
   .:
     dependencies:
-      lithe:
+      '@oarkflow/lithe':
         specifier: file:../..
         version: file:../..
 
 packages:
 
-  lithe@file:../..:
+  '@oarkflow/lithe@file:../..':
     resolution: {directory: ../.., type: directory}
     engines: {node: '>=22.6.0'}
     hasBin: true
 
 snapshots:
 
-  lithe@file:../..: {}
+  '@oarkflow/lithe@file:../..': {}

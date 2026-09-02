@@ -13,7 +13,7 @@ test('preview server serves built dist with correct MIME types, versioned cache 
 		await fs.mkdir(path.join(root, 'public'), { recursive: true });
 		await fs.writeFile(path.join(root, 'public', 'index.html'), '<!doctype html><link rel="stylesheet" href="/app.css"><div id="app"></div><script type="module" src="/src/main.jsx"></script>');
 		await fs.writeFile(path.join(root, 'public', 'app.css'), '.title{color:blue}');
-		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@lithe/dom'; mount(document.getElementById('app'), <h1 className="title">Preview</h1>);`);
+		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@oarkflow/lithe/dom'; mount(document.getElementById('app'), <h1 className="title">Preview</h1>);`);
 
 		await buildProject(root, { bundle: 'single', assetVersion: true, sourceMaps: false, enforceBudgets: false });
 

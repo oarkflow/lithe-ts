@@ -33,6 +33,7 @@ test('core library build emits only reactive DOM package surface', async () => {
     assert.ok(result.files.includes('package.json'));
     assert.ok(result.files.includes('src/core/index.js'));
     assert.ok(result.files.includes('src/dom/index.js'));
+    assert.ok(result.files.includes('types/exports/core.d.ts'));
     assert.equal(result.files.some(x=>x.startsWith('src/router/')),false);
     assert.equal(result.files.some(x=>x.startsWith('src/server/')),false);
     assert.equal(result.files.some(x=>x.startsWith('src/data/')),false);
@@ -45,8 +46,8 @@ test('core library build emits only reactive DOM package surface', async () => {
     assert.ok(result.runtimeGzipBytes<30_000,`core runtime gzip is ${result.runtimeGzipBytes} bytes`);
     assert.ok(result.declarationBytes<25_000,`core declarations are ${result.declarationBytes} bytes`);
     const declarations=await fs.readFile(path.join(out,'types/lithe.d.ts'),'utf8');
-    assert.match(declarations,/declare module '@lithe\/core'/);
-    assert.doesNotMatch(declarations,/declare module '@lithe\/router'/);
+    assert.match(declarations,/declare module '@oarkflow\/lithe\/core'/);
+    assert.doesNotMatch(declarations,/declare module '@oarkflow\/lithe\/router'/);
     const runtime=await import(pathToFileURL(path.join(out,'src/runtime/index.js')).href);
     const count=runtime.signal(1);
     assert.equal(count.value,1);
@@ -75,6 +76,17 @@ test('full library build emits CLI and tooling without examples', async () => {
     assert.ok(result.files.includes('src/compiler/jsx.js'));
     assert.ok(result.files.includes('src/plugins/vite.js'));
     assert.equal(result.files.some(x=>x.startsWith('examples/')),false);
+    const pkg=JSON.parse(await fs.readFile(path.join(out,'package.json'),'utf8'));
+    assert.equal(pkg.name,'@oarkflow/lithe');
+    assert.equal(pkg.private,undefined);
+    assert.equal(pkg.publishConfig.access,'public');
+    assert.equal(pkg.bin.lithe,'cli/lithe.js');
+    assert.equal(pkg.exports['./core'].types,'./types/exports/core.d.ts');
+    assert.equal(pkg.exports['./core'].import,'./src/core/index.js');
+    const declarations=await fs.readFile(path.join(out,'types/lithe.d.ts'),'utf8');
+    assert.match(declarations,/declare module '@oarkflow\/lithe'/);
+    assert.doesNotMatch(declarations,/@lithe\//);
+    assert.doesNotMatch(declarations,/declare module 'lithe(?:\/|')/);
   } finally { await fs.rm(out,{recursive:true,force:true}); }
 });
 

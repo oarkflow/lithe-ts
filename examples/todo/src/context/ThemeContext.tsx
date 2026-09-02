@@ -1,4 +1,4 @@
-import { createContext, useContext, state } from 'lithe/core';
+import { createContext, useContext, state } from '@oarkflow/lithe/core';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 

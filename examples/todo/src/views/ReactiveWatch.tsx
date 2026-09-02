@@ -1,5 +1,5 @@
-import { signal, computed, watch, state, batch, onCleanup } from 'lithe/core';
-import { Link } from 'lithe/router';
+import { signal, computed, watch, state, batch, onCleanup } from '@oarkflow/lithe/core';
+import { Link } from '@oarkflow/lithe/router';
 import { Panel } from '../components/Panel.tsx';
 import { ThemeToggle } from '../components/ThemeToggle.tsx';
 

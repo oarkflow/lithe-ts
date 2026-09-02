@@ -78,7 +78,7 @@ export function splitInlineServerFunctions(code, file, sourceRoot, options = {})
 		refs.push({ id, module, exportName: c.name, local: c.name, inline: true, mode: c.mode });
 	}
 
-	out = `import { serverReference as __litheServerReference } from '@lithe/rpc';\n${out}`;
+	out = `import { serverReference as __litheServerReference } from '@oarkflow/lithe/rpc';\n${out}`;
 	return { code: out, refs: refs.reverse(), candidates: candidates.map(({ start, end, ...x }) => x) };
 }
 

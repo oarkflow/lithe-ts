@@ -86,7 +86,7 @@ export async function checkProject(projectDir) {
 			const spec = match[1];
 			const aliasCandidates = resolveAlias(root, projectAliases, spec);
 			if (!spec.startsWith('.') && !spec.startsWith('/') && !aliasCandidates &&
-				!spec.startsWith('@lithe/') && !spec.startsWith('lithe/') &&
+				!spec.startsWith('@oarkflow/lithe/') && spec !== '@oarkflow/lithe' &&
 				!BUILTINS.has(spec)) {
 				issues.push({
 					severity: 'error', code: 'DEP001',

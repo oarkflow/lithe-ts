@@ -202,7 +202,7 @@ export async function devServer(projectDir, options = {}) {
 				let code = data.toString('utf8');
 				if (/\.(?:jsx|tsx|ts)$/.test(ext)) {
 					code = compileModule(code, {
-						runtimeImport: '@lithe/dom',
+						runtimeImport: '@oarkflow/lithe/dom',
 						typescript: /\.(?:ts|tsx)$/.test(ext),
 						filename: path.relative(root, file),
 						captureEvents: false

@@ -3,6 +3,7 @@ import path from 'node:path';
 
 export async function createProject(dir: string): Promise<string> {
 	const root = path.resolve(dir);
+	const frameworkPackage = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'));
 	await fs.mkdir(path.join(root, 'src'), { recursive: true });
 	await fs.mkdir(path.join(root, 'public'), { recursive: true });
 
@@ -12,6 +13,9 @@ export async function createProject(dir: string): Promise<string> {
 			name: path.basename(root),
 			private: true,
 			type: 'module',
+			dependencies: {
+				'@oarkflow/lithe': `^${frameworkPackage.version}`
+			},
 			scripts: {
 				dev: 'lithe dev .',
 				build: 'lithe build .',
@@ -28,7 +32,7 @@ export async function createProject(dir: string): Promise<string> {
 
 	await fs.writeFile(
 		path.join(root, 'src/main.tsx'),
-		`import { signal, h, mount } from '@lithe/runtime';\nconst count=signal<number>(0);\nfunction App(){ return <main><h1>Lithe</h1><button onClick={()=>count.value++}>Count: {count}</button></main>; }\nmount(document.getElementById('app'), <App/>);\n`
+		`import { signal, mount } from '@oarkflow/lithe/runtime';\nconst count=signal<number>(0);\nfunction App(){ return <main><h1>Lithe</h1><button onClick={()=>count.value++}>Count: {count}</button></main>; }\nmount(document.getElementById('app'), <App/>);\n`
 	);
 
 	return root;

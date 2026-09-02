@@ -1,9 +1,34 @@
 {
-	"name": "lithe",
+	"name": "@oarkflow/lithe",
 	"version": "1.1.1",
-	"private": true,
+	"private": false,
 	"type": "module",
 	"description": "Lithe v1.1: a zero-dependency TypeScript-first compiler, fine-grained frontend/full-stack framework built on browser APIs and Node.js built-ins.",
+	"license": "MIT",
+	"author": "oarkflow",
+	"keywords": [
+		"typescript",
+		"frontend",
+		"framework",
+		"reactive",
+		"signals",
+		"jsx",
+		"compiler",
+		"ssr",
+		"fine-grained",
+		"zero-dependency"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/oarkflow/lithe-ts.git"
+	},
+	"homepage": "https://github.com/oarkflow/lithe-ts#readme",
+	"bugs": {
+		"url": "https://github.com/oarkflow/lithe-ts/issues"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"engines": {
 		"node": ">=22.6.0"
 	},
@@ -41,7 +66,9 @@
 		"validate:lib": "node --experimental-strip-types --trace-warnings cli/lithe.ts sourcecheck . && node --experimental-strip-types --trace-warnings tools/build-library.ts --mode=core && node --experimental-strip-types --trace-warnings tools/build-library.ts --mode=runtime && node --experimental-strip-types --trace-warnings tools/build-library.ts --mode=full && node --experimental-strip-types --trace-warnings --test tests/release.test.ts tests/typescript-first.test.ts tests/compiler.test.ts tests/plugins.test.ts",
 		"validate:demo": "node --experimental-strip-types --trace-warnings cli/lithe.ts typecheck examples/todo && node --experimental-strip-types --trace-warnings cli/lithe.ts check examples/todo && node --experimental-strip-types --trace-warnings cli/lithe.ts build examples/todo",
 		"sourcecheck": "node --experimental-strip-types --trace-warnings cli/lithe.ts sourcecheck .",
-		"check:framework": "node --experimental-strip-types --trace-warnings cli/lithe.ts check ."
+		"check:framework": "node --experimental-strip-types --trace-warnings cli/lithe.ts check .",
+		"pack:npm": "npm run build:full && npm pack ./dist/lithe-package-full",
+		"publish:npm": "npm run validate:lib && npm publish ./dist/lithe-package-full --access public"
 	},
 	"dependencies": { },
 	"devDependencies": { },

@@ -1,6 +1,6 @@
-import { signal, state } from 'lithe/core';
-import { infiniteQuery, mutation } from 'lithe/data';
-import { Link } from 'lithe/router';
+import { signal, state } from '@oarkflow/lithe/core';
+import { infiniteQuery, mutation } from '@oarkflow/lithe/data';
+import { Link } from '@oarkflow/lithe/router';
 import { Panel } from '../components/Panel.tsx';
 import { ThemeToggle } from '../components/ThemeToggle.tsx';
 

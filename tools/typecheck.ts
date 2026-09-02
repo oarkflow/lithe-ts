@@ -7,32 +7,32 @@ import { collectTypeEnvironment, semanticTypecheck } from '../src/compiler/typec
 import { exists, walk, FRAMEWORK_ROOT } from './shared.ts';
 
 const publicModules = {
-	'@lithe/core': 'src/core/index.ts',
-	'@lithe/dom': 'src/dom/index.ts',
-	'@lithe/router': 'src/router/index.ts',
-	'@lithe/data': 'src/data/index.ts',
-	'@lithe/forms': 'src/forms/index.ts',
-	'@lithe/rpc': 'src/server/rpc.ts',
-	'@lithe/server': 'src/server/index.ts',
-	'@lithe/offline': 'src/offline/index.ts',
-	'@lithe/sync': 'src/sync/index.ts',
-	'@lithe/collection': 'src/collection/index.ts',
-	'@lithe/virtual': 'src/virtual/index.ts',
-	'@lithe/grid': 'src/grid/index.ts',
-	'@lithe/style': 'src/style/index.ts',
-	'@lithe/image': 'src/image/index.ts',
-	'@lithe/animation': 'src/animation/index.ts',
-	'@lithe/ui': 'src/ui/index.ts',
-	'@lithe/worker': 'src/worker/index.ts',
-	'@lithe/interop': 'src/interop/index.ts',
-	'@lithe/devtools': 'src/devtools/index.ts',
-	'@lithe/observability': 'src/observability/index.ts',
-	'@lithe/i18n': 'src/i18n/index.ts',
-	'@lithe/head': 'src/head/index.ts',
-	'@lithe/permissions': 'src/permissions/index.ts',
-	'@lithe/testing': 'src/testing/index.ts',
-	'@lithe/app': 'src/app/index.ts',
-	'@lithe/compiler': 'src/compiler/index.ts'
+	'@oarkflow/lithe/core': 'src/core/index.ts',
+	'@oarkflow/lithe/dom': 'src/dom/index.ts',
+	'@oarkflow/lithe/router': 'src/router/index.ts',
+	'@oarkflow/lithe/data': 'src/data/index.ts',
+	'@oarkflow/lithe/forms': 'src/forms/index.ts',
+	'@oarkflow/lithe/rpc': 'src/server/rpc.ts',
+	'@oarkflow/lithe/server': 'src/server/index.ts',
+	'@oarkflow/lithe/offline': 'src/offline/index.ts',
+	'@oarkflow/lithe/sync': 'src/sync/index.ts',
+	'@oarkflow/lithe/collection': 'src/collection/index.ts',
+	'@oarkflow/lithe/virtual': 'src/virtual/index.ts',
+	'@oarkflow/lithe/grid': 'src/grid/index.ts',
+	'@oarkflow/lithe/style': 'src/style/index.ts',
+	'@oarkflow/lithe/image': 'src/image/index.ts',
+	'@oarkflow/lithe/animation': 'src/animation/index.ts',
+	'@oarkflow/lithe/ui': 'src/ui/index.ts',
+	'@oarkflow/lithe/worker': 'src/worker/index.ts',
+	'@oarkflow/lithe/interop': 'src/interop/index.ts',
+	'@oarkflow/lithe/devtools': 'src/devtools/index.ts',
+	'@oarkflow/lithe/observability': 'src/observability/index.ts',
+	'@oarkflow/lithe/i18n': 'src/i18n/index.ts',
+	'@oarkflow/lithe/head': 'src/head/index.ts',
+	'@oarkflow/lithe/permissions': 'src/permissions/index.ts',
+	'@oarkflow/lithe/testing': 'src/testing/index.ts',
+	'@oarkflow/lithe/app': 'src/app/index.ts',
+	'@oarkflow/lithe/compiler': 'src/compiler/index.ts'
 };
 
 function moduleBlock(source, name) {
@@ -76,7 +76,7 @@ export async function declarationCoverage() {
 		const mod = await import(pathToFileURL(path.join(FRAMEWORK_ROOT, file)).href);
 		for (const name of Object.keys(mod)) {
 			if (!new RegExp(`\\b${name.replace(/[$]/g, '\\$&')}\\b`).test(block) &&
-				!(/@lithe\/server/.test(specifier) && moduleBlock(declaration, '@lithe/rpc').includes(name))) {
+				!(/@oarkflow\/lithe\/server/.test(specifier) && moduleBlock(declaration, '@oarkflow/lithe/rpc').includes(name))) {
 				issues.push({
 					severity: 'error',
 					code: 'TYPE_EXPORT_MISSING',

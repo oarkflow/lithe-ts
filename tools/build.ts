@@ -633,7 +633,7 @@ export async function buildProject(projectDir, options = {}) {
 		serverRefs.push(...split.refs);
 		const raw = removeUnusedServerReferences(split.code);
 		const compiled = compileModule(raw, {
-			runtimeImport: '@lithe/dom',
+			runtimeImport: '@oarkflow/lithe/dom',
 			typescript: ext === '.ts' || ext === '.tsx',
 			filename: path.relative(root, file),
 			generatedFile: path.relative(out, dest),
@@ -692,7 +692,7 @@ export async function buildProject(projectDir, options = {}) {
 		const dest = path.join(out, rel);
 		await ensureDir(dest);
 		const compiled = compileModule(event.code, {
-			runtimeImport: '@lithe/dom',
+			runtimeImport: '@oarkflow/lithe/dom',
 			typescript: event.typescript,
 			filename: `${path.relative(root, event.sourceFile)}#${event.chunk}`,
 			generatedFile: rel,
@@ -743,7 +743,7 @@ export async function buildProject(projectDir, options = {}) {
 			await ensureDir(dest);
 			const raw = await fs.readFile(file, 'utf8');
 			const compiled = compileModule(raw, {
-				runtimeImport: '@lithe/dom',
+				runtimeImport: '@oarkflow/lithe/dom',
 				typescript: ext === '.ts' || ext === '.tsx',
 				filename: path.relative(root, file),
 				generatedFile: path.relative(serverOut, dest),

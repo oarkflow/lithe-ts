@@ -10,13 +10,13 @@ test('JSX compiler transforms elements, components, fragments and expressions', 
 });
 
 test('module compiler injects runtime when JSX exists', () => {
-	const out = compileModule(`export default function A(){return <div/>}`, { runtimeImport: '@lithe/dom' }).code;
+	const out = compileModule(`export default function A(){return <div/>}`, { runtimeImport: '@oarkflow/lithe/dom' }).code;
 	assert.match(out, /import \{ h, Fragment \}/); assert.match(out, /staticTemplate\("<div><\/div>"\)/);
 });
 
 
 test('member components are never compiled as native elements', () => {
-	const out = compileModule(`mount(root, <router.View/>);`, { runtimeImport: '@lithe/dom' }).code;
+	const out = compileModule(`mount(root, <router.View/>);`, { runtimeImport: '@oarkflow/lithe/dom' }).code;
 	assert.match(out, /h\(router\.View/);
 	assert.doesNotMatch(out, /<router\.View|staticTemplate\([^)]*router\.View/);
 });

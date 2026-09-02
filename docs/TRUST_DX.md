@@ -4,7 +4,7 @@ This guide defines how Lithe turns “faster and better” into verifiable engin
 
 ## Stable vs Experimental
 
-Stable public APIs live under normal exports such as `lithe`, `lithe/core`, `lithe/dom`, `lithe/router`, `lithe/data`, `lithe/forms`, `lithe/server`, and `lithe/app`.
+Stable public APIs live under exports such as `@spbaniya/lithe`, `@spbaniya/lithe/core`, `@spbaniya/lithe/dom`, `@spbaniya/lithe/router`, `@spbaniya/lithe/data`, `@spbaniya/lithe/forms`, `@spbaniya/lithe/server`, and `@spbaniya/lithe/app`.
 
 Advanced optimization and renderer internals that may change live under `lithe/experimental`.
 
@@ -13,11 +13,11 @@ Advanced optimization and renderer internals that may change live under `lithe/e
 Use definition helpers to preserve inference at framework boundaries:
 
 ```ts
-import { defineRoutes, defineLoader } from 'lithe/router';
-import { defineQuery, defineMutation } from 'lithe/data';
-import { defineForm } from 'lithe/forms';
-import { defineAction } from 'lithe/server';
-import { defineApp } from 'lithe/app';
+import { defineRoutes, defineLoader } from '@spbaniya/lithe/router';
+import { defineQuery, defineMutation } from '@spbaniya/lithe/data';
+import { defineForm } from '@spbaniya/lithe/forms';
+import { defineAction } from '@spbaniya/lithe/server';
+import { defineApp } from '@spbaniya/lithe/app';
 ```
 
 These helpers are intentionally small runtime wrappers. Their main job is to make user code easier for editors, docs, generated types, and future compiler passes to understand.

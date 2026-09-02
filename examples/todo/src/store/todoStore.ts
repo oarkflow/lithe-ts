@@ -1,4 +1,4 @@
-import { createStore, persist, history } from 'lithe/core';
+import { createStore, persist, history } from '@oarkflow/lithe/core';
 
 export type TodoFilter = 'all' | 'active' | 'completed';
 

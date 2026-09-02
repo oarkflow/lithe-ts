@@ -13,7 +13,7 @@ const DEFAULT_EXCLUDE = /node_modules/;
 export function litheVitePlugin(options: LitheVitePluginOptions = {}) {
     const include = options.include || DEFAULT_INCLUDE;
     const exclude = options.exclude || DEFAULT_EXCLUDE;
-    const runtimeImport = options.runtimeImport || 'lithe/dom';
+    const runtimeImport = options.runtimeImport || '@oarkflow/lithe/dom';
     function shouldTransform(id: string): boolean {
         const cleanId = id.split('?')[0].split('#')[0];
         if (exclude instanceof RegExp && exclude.test(cleanId)) return false;
@@ -32,7 +32,7 @@ export function litheVitePlugin(options: LitheVitePluginOptions = {}) {
                     exclude: /\.[jt]sx$/
                 },
                 optimizeDeps: {
-                    include: ['lithe', 'lithe/core', 'lithe/dom', 'lithe/router', 'lithe/server']
+                    include: ['@oarkflow/lithe', '@oarkflow/lithe/core', '@oarkflow/lithe/dom', '@oarkflow/lithe/router', '@oarkflow/lithe/server']
                 }
             };
         },

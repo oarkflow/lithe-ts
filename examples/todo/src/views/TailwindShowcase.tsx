@@ -1,5 +1,5 @@
-import { signal } from 'lithe/core';
-import { Link } from 'lithe/router';
+import { signal } from '@oarkflow/lithe/core';
+import { Link } from '@oarkflow/lithe/router';
 import { ThemeToggle } from '../components/ThemeToggle.tsx';
 
 type TabType = 'overview' | 'buttons' | 'glass' | 'cards' | 'badges' | 'forms' | 'palette' | 'layout' | 'animations';

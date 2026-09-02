@@ -13,7 +13,7 @@ const DEFAULT_EXCLUDE = /node_modules/;
 export function litheRollupPlugin(options: LitheRollupPluginOptions = {}) {
     const include = options.include || DEFAULT_INCLUDE;
     const exclude = options.exclude || DEFAULT_EXCLUDE;
-    const runtimeImport = options.runtimeImport || 'lithe/dom';
+    const runtimeImport = options.runtimeImport || '@oarkflow/lithe/dom';
     function shouldTransform(id: string): boolean {
         const cleanId = id.split('?')[0].split('#')[0];
         if (exclude instanceof RegExp && exclude.test(cleanId)) return false;

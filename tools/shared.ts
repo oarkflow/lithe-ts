@@ -35,36 +35,37 @@ export async function copyFile(from, to) {
 }
 
 export const aliases = {
-	'@lithe/runtime': 'runtime/index.js',
-	'@lithe/core': 'core/index.js',
-	'@lithe/dom': 'dom/index.js',
-	'@lithe/router': 'router/index.js',
-	'@lithe/data': 'data/index.js',
-	'@lithe/forms': 'forms/index.js',
-	'@lithe/server': 'server/index.js',
-	'@lithe/rpc': 'server/rpc.js',
-	'@lithe/worker': 'worker/index.js',
-	'@lithe/offline': 'offline/index.js',
-	'@lithe/i18n': 'i18n/index.js',
-	'@lithe/head': 'head/index.js',
-	'@lithe/animation': 'animation/index.js',
-	'@lithe/collection': 'collection/index.js',
-	'@lithe/virtual': 'virtual/index.js',
-	'@lithe/permissions': 'permissions/index.js',
-	'@lithe/observability': 'observability/index.js',
-	'@lithe/devtools': 'devtools/index.js',
-	'@lithe/testing': 'testing/index.js',
-	'@lithe/style': 'style/index.js',
-	'@lithe/image': 'image/index.js',
-	'@lithe/sync': 'sync/index.js',
-	'@lithe/ui': 'ui/index.js',
-	'@lithe/grid': 'grid/index.js',
-	'@lithe/app': 'app/index.js',
-	'@lithe/interop': 'interop/index.js'
+	'@oarkflow/lithe': 'runtime/index.js',
+	'@oarkflow/lithe/runtime': 'runtime/index.js',
+	'@oarkflow/lithe/core': 'core/index.js',
+	'@oarkflow/lithe/dom': 'dom/index.js',
+	'@oarkflow/lithe/router': 'router/index.js',
+	'@oarkflow/lithe/data': 'data/index.js',
+	'@oarkflow/lithe/forms': 'forms/index.js',
+	'@oarkflow/lithe/server': 'server/index.js',
+	'@oarkflow/lithe/rpc': 'server/rpc.js',
+	'@oarkflow/lithe/worker': 'worker/index.js',
+	'@oarkflow/lithe/offline': 'offline/index.js',
+	'@oarkflow/lithe/i18n': 'i18n/index.js',
+	'@oarkflow/lithe/head': 'head/index.js',
+	'@oarkflow/lithe/animation': 'animation/index.js',
+	'@oarkflow/lithe/collection': 'collection/index.js',
+	'@oarkflow/lithe/virtual': 'virtual/index.js',
+	'@oarkflow/lithe/permissions': 'permissions/index.js',
+	'@oarkflow/lithe/observability': 'observability/index.js',
+	'@oarkflow/lithe/devtools': 'devtools/index.js',
+	'@oarkflow/lithe/testing': 'testing/index.js',
+	'@oarkflow/lithe/style': 'style/index.js',
+	'@oarkflow/lithe/image': 'image/index.js',
+	'@oarkflow/lithe/sync': 'sync/index.js',
+	'@oarkflow/lithe/ui': 'ui/index.js',
+	'@oarkflow/lithe/grid': 'grid/index.js',
+	'@oarkflow/lithe/app': 'app/index.js',
+	'@oarkflow/lithe/interop': 'interop/index.js'
 };
 
 const directExports = {
-	'@lithe/core': {
+	'@oarkflow/lithe/core': {
 		signal: 'core/reactive.js', computed: 'core/reactive.js', effect: 'core/reactive.js',
 		batch: 'core/reactive.js', untrack: 'core/reactive.js', state: 'core/reactive.js',
 		watch: 'core/reactive.js', isSignal: 'core/reactive.js', unwrap: 'core/reactive.js',
@@ -83,7 +84,7 @@ const directExports = {
 		createStore: 'core/store.js', defineStore: 'core/store.js', createContextStore: 'core/store.js',
 		persist: 'core/store.js', history: 'core/store.js', devtools: 'core/store.js', produce: 'core/store.js'
 	},
-	'@lithe/dom': {
+	'@oarkflow/lithe/dom': {
 		h: 'dom/vnode.js', Fragment: 'dom/vnode.js', isVNode: 'dom/vnode.js',
 		mount: 'dom/dom.js', dynamic: 'dom/dom.js', trustedHTML: 'dom/dom.js',
 		staticTemplate: 'dom/dom.js', compiledTemplate: 'dom/dom.js', compiledElement: 'dom/dom.js',
@@ -96,7 +97,7 @@ const directExports = {
 		eventSymbol: 'dom/event-symbol.js', capturedEventSymbol: 'dom/event-symbol.js',
 		resumeDocument: 'dom/resume.js', serializeResumeState: 'dom/resume.js'
 	},
-	'@lithe/forms': {
+	'@oarkflow/lithe/forms': {
 		createForm: 'forms/form.js', formDataToObject: 'forms/form.js',
 		getPath: 'forms/form.js', setPath: 'forms/form.js',
 		AutoForm: 'forms/auto.js',
@@ -107,26 +108,26 @@ const directExports = {
 		toJSONSchema: 'forms/emit.js', toOpenAPI: 'forms/emit.js',
 		createAdvancedForm: 'forms/advanced.js'
 	},
-	'@lithe/router': {
+	'@oarkflow/lithe/router': {
 		createRouter: 'router/router.js', Link: 'router/router.js', group: 'router/router.js',
 		prefetchPolicy: 'router/router.js',
 		Outlet: 'router/utils.js', defineRoutes: 'router/utils.js', routePath: 'router/utils.js',
 		routeManifest: 'router/utils.js', sharedTransition: 'router/utils.js'
 	},
-	'@lithe/collection': { collection: 'collection/collection.js' },
-	'@lithe/i18n': { createI18n: 'i18n/i18n.js' },
-	'@lithe/style': { css: 'style/style.js', defineTheme: 'style/style.js', collectedCSS: 'style/style.js' },
-	'@lithe/data': {
+	'@oarkflow/lithe/collection': { collection: 'collection/collection.js' },
+	'@oarkflow/lithe/i18n': { createI18n: 'i18n/i18n.js' },
+	'@oarkflow/lithe/style': { css: 'style/style.js', defineTheme: 'style/style.js', collectedCSS: 'style/style.js' },
+	'@oarkflow/lithe/data': {
 		query: 'data/query.js', queryClient: 'data/query.js', QueryClient: 'data/query.js',
 		mutation: 'data/query.js', resource: 'data/query.js',
 		infiniteQuery: 'data/query.js', cursorQuery: 'data/query.js'
 	},
-	'@lithe/worker': { worker: 'worker/worker.js', sharedWorker: 'worker/worker.js' },
-	'@lithe/offline': {
+	'@oarkflow/lithe/worker': { worker: 'worker/worker.js', sharedWorker: 'worker/worker.js' },
+	'@oarkflow/lithe/offline': {
 		createNetworkState: 'offline/offline.js', registerServiceWorker: 'offline/offline.js',
 		createIndexedDBStorage: 'offline/storage.js', createPersistentMutationQueue: 'offline/storage.js'
 	},
-	'@lithe/ui': {
+	'@oarkflow/lithe/ui': {
 		Dialog: 'ui/primitives.js', Tabs: 'ui/primitives.js', Menu: 'ui/primitives.js',
 		Listbox: 'ui/primitives.js', Combobox: 'ui/primitives.js', Tooltip: 'ui/primitives.js',
 		Tree: 'ui/primitives.js', CommandPalette: 'ui/primitives.js'
@@ -134,9 +135,8 @@ const directExports = {
 };
 
 export function rewriteBareImports(code, prefix = '/__lithe/') {
-	code = code.replace(/import\s*\{([^}]+)\}\s*from\s*(['"])((?:@lithe|lithe)\/[\w-]+)\2\s*;?/g, (full, body, q, spec) => {
-		const canonical = spec.startsWith('lithe/') ? `@${spec}` : spec;
-		const map = directExports[canonical];
+	code = code.replace(/import\s*\{([^}]+)\}\s*from\s*(['"])(@oarkflow\/lithe(?:\/[\w-]+)?)\2\s*;?/g, (full, body, q, spec) => {
+		const map = directExports[spec];
 		if (!map) return full;
 
 		const groups = new Map();
@@ -156,14 +156,14 @@ export function rewriteBareImports(code, prefix = '/__lithe/') {
 			`import { ${names.join(', ')} } from ${JSON.stringify(prefix + target)};`
 		);
 		if (fallback.length) {
-			const target = aliases[canonical];
+			const target = aliases[spec];
 			lines.push(`import { ${fallback.join(', ')} } from ${JSON.stringify(prefix + target)};`);
 		}
 		return lines.join('\n');
 	});
 
-	return code.replace(/((?:import|export)\s+(?:[^'";]+?\s+from\s+)?|import\s*\()(['"])((?:@lithe|lithe)\/[\w-]+)\2/g, (m, lead, q, spec) => {
-		const target = aliases[spec] || aliases[spec.startsWith('lithe/') ? `@${spec}` : spec];
+	return code.replace(/((?:import|export)\s+(?:[^'";]+?\s+from\s+)?|import\s*\()(['"])(@oarkflow\/lithe(?:\/[\w-]+)?)\2/g, (m, lead, q, spec) => {
+		const target = aliases[spec];
 		return target ? `${lead}${q}${prefix}${target}${q}` : m;
 	});
 }

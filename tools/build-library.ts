@@ -65,33 +65,24 @@ const CORE_MODULES = new Set([
 ]);
 
 const CORE_DECLARATION_MODULES = new Set([
-	'@lithe/core',
-	'@lithe/dom',
-	'@lithe/dom/jsx-runtime',
-	'@lithe/dom/jsx-dev-runtime',
-	'@lithe/runtime',
-	'lithe-zero-framework',
-	'lithe',
-	'lithe/core',
-	'lithe/dom',
-	'lithe/runtime',
-	'lithe/jsx-runtime',
-	'lithe/jsx-dev-runtime',
-	'lithe/dom/jsx-runtime',
-	'lithe/dom/jsx-dev-runtime'
+	'@oarkflow/lithe',
+	'@oarkflow/lithe/core',
+	'@oarkflow/lithe/dom',
+	'@oarkflow/lithe/dom/jsx-runtime',
+	'@oarkflow/lithe/dom/jsx-dev-runtime',
+	'@oarkflow/lithe/runtime',
+	'@oarkflow/lithe/jsx-runtime',
+	'@oarkflow/lithe/jsx-dev-runtime'
 ]);
 
 const TOOLING_DECLARATION_MODULES = new Set([
-	'@lithe/compiler',
-	'@lithe/experimental',
-	'@lithe/plugins',
-	'lithe/compiler',
-	'lithe/experimental',
-	'lithe/plugins',
-	'lithe/vite',
-	'lithe/rollup',
-	'lithe/babel',
-	'lithe/tailwind'
+	'@oarkflow/lithe/compiler',
+	'@oarkflow/lithe/experimental',
+	'@oarkflow/lithe/plugins',
+	'@oarkflow/lithe/vite',
+	'@oarkflow/lithe/rollup',
+	'@oarkflow/lithe/babel',
+	'@oarkflow/lithe/tailwind'
 ]);
 
 const RUNTIME_MODULES = new Set([
@@ -165,7 +156,11 @@ function packageExports(exportsMap, mode: LibraryBuildMode) {
 		if (mode === 'core' && !CORE_EXPORTS.has(key)) continue;
 		if (mode === 'runtime' && !RUNTIME_EXPORTS.has(key)) continue;
 		if (typeof value === 'string') {
-			out[key] = value.replace(/^\.\/src\//, './src/').replace(/\.ts$/, '.js').replace(/\.tsx$/, '.js');
+			const name = key === '.' ? 'index' : key.slice(2).replace(/\//g, '__');
+			out[key] = {
+				types: `./types/exports/${name}.d.ts`,
+				import: value.replace(/^\.\/src\//, './src/').replace(/\.ts$/, '.js').replace(/\.tsx$/, '.js')
+			};
 		}
 	}
 	return out;
@@ -173,13 +168,19 @@ function packageExports(exportsMap, mode: LibraryBuildMode) {
 
 async function writeCompiledTS(from: string, to: string, executable = false) {
 	const source = await fs.readFile(from, 'utf8');
-	let code = rewriteBuiltImports(stripTypeScript(source, { filename: path.relative(FRAMEWORK_ROOT, from) }));
-	const diagnostics = validateJavaScript(code, { filename: path.relative(FRAMEWORK_ROOT, from), maxErrors: 5 }).diagnostics;
+	const filename = path.relative(FRAMEWORK_ROOT, from);
+	let code = rewriteBuiltImports(stripTypeScript(source, { filename }));
+	const diagnostics = validateJavaScript(code, { filename, maxErrors: 5 }).diagnostics;
 	if (diagnostics.some(x => x.severity === 'error')) {
 		const first = diagnostics.find(x => x.severity === 'error');
-		throw new Error(`Library build emitted invalid JavaScript for ${path.relative(FRAMEWORK_ROOT, from)}: ${first?.message}`);
+		throw new Error(`Library build emitted invalid JavaScript for ${filename}: ${first?.message}`);
 	}
-	if (!executable) code = minifyJS(code);
+	if (!executable && filename.startsWith(`src${path.sep}`)) code = minifyJS(code);
+	const finalDiagnostics = validateJavaScript(code, { filename, maxErrors: 5 }).diagnostics;
+	if (finalDiagnostics.some(x => x.severity === 'error')) {
+		const first = finalDiagnostics.find(x => x.severity === 'error');
+		throw new Error(`Library build finalized invalid JavaScript for ${filename}: ${first?.message}`);
+	}
 	if (executable && !code.startsWith('#!')) code = `#!/usr/bin/env node\n${code}`;
 	await ensureDir(to);
 	await fs.writeFile(to, code);
@@ -245,18 +246,33 @@ export async function buildLibraryPackage(options: { outDir?: string; mode?: Lib
 	}
 
 	const rootPkg = JSON.parse(await fs.readFile(path.join(FRAMEWORK_ROOT, 'package.json'), 'utf8'));
+	const exports = packageExports(rootPkg.exports, mode);
+	await fs.mkdir(path.join(outDir, 'types', 'exports'), { recursive: true });
+	for (const [key, value] of Object.entries(exports)) {
+		const specifier = key === '.' ? '@oarkflow/lithe/runtime' : `@oarkflow/lithe/${key.slice(2)}`;
+		const target = value.types.slice(2);
+		await fs.writeFile(path.join(outDir, target), `/// <reference path="../lithe.d.ts" />\nexport * from '${specifier}';\n`);
+		emitted.push(target);
+	}
 	const pkg = {
 		name: rootPkg.name,
 		version: rootPkg.version,
 		type: 'module',
 		description: rootPkg.description,
+		license: 'MIT',
+		author: rootPkg.author || 'oarkflow',
+		keywords: rootPkg.keywords || ['typescript', 'frontend', 'framework', 'reactive', 'signals', 'jsx', 'compiler', 'ssr'],
+		repository: rootPkg.repository || { type: 'git', url: 'git+https://github.com/oarkflow/lithe-ts.git' },
+		homepage: rootPkg.homepage || 'https://github.com/oarkflow/lithe-ts#readme',
+		bugs: rootPkg.bugs || { url: 'https://github.com/oarkflow/lithe-ts/issues' },
+		publishConfig: { access: 'public' },
 		engines: rootPkg.engines,
-		...(mode === 'full' ? { bin: { lithe: './cli/lithe.js' } } : {}),
+		...(mode === 'full' ? { bin: { lithe: 'cli/lithe.js' } } : {}),
 		files: mode === 'full'
 			? ['src', 'cli', 'tools', 'types', 'README.md', 'LICENSE', 'CHANGELOG.md']
 			: ['src', 'types', 'README.md', 'LICENSE', 'CHANGELOG.md'],
-		types: './types/lithe.d.ts',
-		exports: packageExports(rootPkg.exports, mode),
+		types: './types/exports/index.d.ts',
+		exports,
 		dependencies: {},
 		devDependencies: {}
 	};

@@ -27,7 +27,7 @@ test('V8-backed JavaScript validation accepts full module grammar and reports sy
 });
 
 test('compiler emits direct native DOM instructions, member components, lazy event symbols and accessibility diagnostics', () => {
-	const out = compileModule(`import { save } from './events.ts';\nexport function Page(){ return <main><button onClick={save}>Save</button><router.View/></main> }`, { runtimeImport: '@lithe/dom', filename: 'src/page.jsx' });
+	const out = compileModule(`import { save } from './events.ts';\nexport function Page(){ return <main><button onClick={save}>Save</button><router.View/></main> }`, { runtimeImport: '@oarkflow/lithe/dom', filename: 'src/page.jsx' });
 	assert.match(out.code, /compiledElement\("main"/);
 	assert.match(out.code, /eventSymbol\("\/src\/events\.js",\s*"save"\)/);
 	assert.match(out.code, /h\(router\.View/);
@@ -91,7 +91,7 @@ test('production chunk reachability keeps event-symbol modules and prunes unreac
 		await fs.mkdir(path.join(root, 'src'), { recursive: true }); await fs.mkdir(path.join(root, 'public'), { recursive: true });
 		await fs.writeFile(path.join(root, 'public', 'index.html'), `<div id="app"></div><script type="module" src="/src/main.jsx"></script>`);
 		await fs.writeFile(path.join(root, 'public', 'app.css'), `.ready{color:red}`);
-		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { save } from './events.ts'; import { mount } from '@lithe/dom'; mount(document.getElementById('app'), <button onClick={save}>Save</button>);`);
+		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { save } from './events.ts'; import { mount } from '@oarkflow/lithe/dom'; mount(document.getElementById('app'), <button onClick={save}>Save</button>);`);
 		await fs.writeFile(path.join(root, 'src', 'events.js'), `export function save(){ globalThis.__saved=(globalThis.__saved||0)+1 }`);
 		await fs.writeFile(path.join(root, 'src', 'unused.js'), `export const shouldDisappear='unused-marker'`);
 		const { manifest, out } = await buildProject(root, { enforceBudgets: false, sourceMaps: false });
@@ -107,7 +107,7 @@ test('production single bundle mode emits one static app entry', async () => {
 		await fs.mkdir(path.join(root, 'src'), { recursive: true }); await fs.mkdir(path.join(root, 'public'), { recursive: true });
 		await fs.writeFile(path.join(root, 'public', 'index.html'), `<div id="app"></div><script type="module" src="/src/main.jsx"></script>`);
 		await fs.writeFile(path.join(root, 'public', 'app.css'), `.ready{color:red}`);
-		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@lithe/dom'; export function unusedHelper(){return 'remove-me'} mount(document.getElementById('app'), <main className="ready">Ready</main>);`);
+		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@oarkflow/lithe/dom'; export function unusedHelper(){return 'remove-me'} mount(document.getElementById('app'), <main className="ready">Ready</main>);`);
 		const { manifest, out } = await buildProject(root, { bundle: 'single', sourceMaps: false, enforceBudgets: false });
 		assert.equal(manifest.bundle, 'single'); assert.deepEqual(manifest.chunks.entries, ['app.js']); assert.equal(manifest.eventChunks.length, 0); assert.equal(manifest.assetVersion, null); await assert.rejects(fs.access(path.join(out, '__lithe_events')));
 		const app = await fs.readFile(path.join(out, 'app.js'), 'utf8'); assert.ok(app.includes('__litheRequire')); assert.doesNotMatch(app, /remove-me/); await assert.rejects(fs.access(path.join(out, 'src', 'main.js')));
@@ -122,7 +122,7 @@ test('chunks mode tracks initial JavaScript budget separately from lazy imports'
 		await fs.mkdir(path.join(root, 'src'), { recursive: true }); await fs.mkdir(path.join(root, 'public'), { recursive: true });
 		await fs.writeFile(path.join(root, 'public', 'index.html'), `<div id="app"></div><script type="module" src="/src/main.jsx"></script>`);
 		await fs.writeFile(path.join(root, 'lithe.config.json'), JSON.stringify({ bundle: 'chunks', performance: { initialJsGzip: 20000, totalBytes: 1000000 } }));
-		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@lithe/dom'; mount(document.getElementById('app'), <main>{()=>import('./heavy.js').then(m=>m.label)}</main>);`);
+		await fs.writeFile(path.join(root, 'src', 'main.jsx'), `import { mount } from '@oarkflow/lithe/dom'; mount(document.getElementById('app'), <main>{()=>import('./heavy.js').then(m=>m.label)}</main>);`);
 		await fs.writeFile(path.join(root, 'src', 'heavy.js'), `export const label = ${JSON.stringify('x'.repeat(40000))};`);
 		const { manifest } = await buildProject(root, { sourceMaps: false });
 		assert.ok(manifest.chunks.initial.some(x => x.endsWith('main.js')));

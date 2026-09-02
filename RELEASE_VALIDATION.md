@@ -5,7 +5,7 @@ Validation date: 2026-09-02
 ## TypeScript conversion gates
 
 - Authored framework/runtime/tooling/CLI/test/benchmark source: **TypeScript/TSX only**
-- `lithe sourcecheck .`: **167 TypeScript source files checked, 0 issues**
+- `lithe sourcecheck .`: **168 TypeScript source files checked, 0 issues**
 - Authored `.js`, `.jsx`, `.mjs`, `.cjs` implementation files outside generated output: **0**
 - TypeScript-first regression tests: **PASS**
 - Generated browser modules contain unresolved `.ts`/`.tsx` imports: **0**
@@ -29,22 +29,36 @@ Validation date: 2026-09-02
 
 ## Library Package
 
+- Package identity: **`@spbaniya/lithe@1.1.1`**
 - Root `npm run build` target: **core library package only**
 - Output: **`dist/lithe-package`**
 - Includes: minified modular `src/core`, minified modular `src/dom`, root JSX/runtime barrels, core-only declarations and docs/license files
 - Excludes: **`examples/*`, `tools/*`, `cli/*`, `src/compiler/*`, `src/plugins/*`**
-- Core runtime JavaScript: **79,727 bytes**
-- Core runtime JavaScript gzip: **25,544 bytes**
-- Core declarations: **17,139 bytes**
-- Published package files: **29**
-- Package tarball size: **30,581 bytes**
-- Package unpacked size: **110,776 bytes**
+- Core runtime JavaScript: **79,729 bytes**
+- Core runtime JavaScript gzip: **25,540 bytes**
+- Core declarations: **16,342 bytes**
+- Core artifact files: **36**
+- Package tarball size: **31,241 bytes**
+- Package unpacked size: **111,626 bytes**
 - Package exports: **7**
 
 ## Runtime And Tooling Packages
 
 - Runtime and full package sizes are reported independently by their build commands; neither is counted as core.
 - Both package modes exclude **`examples/*`**
+
+## npm Publication
+
+- Published artifact mode: **full** (runtime, compiler, plugins, tooling and CLI; no demos/examples)
+- Registry access: **public scoped package**
+- npm publish dry run: **PASS with no manifest warnings**
+- Clean tarball install: **PASS**
+- Root, core, router, Vite and JSX-runtime imports from installed tarball: **PASS**
+- Installed `lithe` CLI: **PASS**
+- Installed CLI create-and-build smoke test: **PASS**, 6 output files / 16.61 KB
+- Full npm tarball: **161,452 bytes**, 169 files / 609,452 bytes unpacked
+- Strict TypeScript 5.2 consumer check for root/core/router/Vite exports: **PASS** (`skipLibCheck: false`)
+- Registry availability check: **`@spbaniya/lithe` not previously published; version 1.1.1 available**
 
 ## Demo Production Budget
 

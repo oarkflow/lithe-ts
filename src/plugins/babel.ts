@@ -16,7 +16,7 @@ export function litheBabelPlugin(api?: any, options: LitheBabelPluginOptions = {
             api.assertVersion(7);
         } catch { }
     }
-    const runtimeImport = options.runtimeImport || 'lithe/dom';
+    const runtimeImport = options.runtimeImport || '@oarkflow/lithe/dom';
     return {
         name: 'babel-plugin-lithe',
         visitor: {
