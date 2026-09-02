@@ -1,0 +1,10 @@
+{
+	"sourceMaps": false,
+	"minify": true,
+	"bundle": "single",
+	"performance": {
+		"enabled": false,
+		"initialJsGzip": "50kb",
+		"totalBytes": "1mb"
+	}
+}

@@ -1,0 +1,24 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@oarkflow/lithe':
+        specifier: ^1.1.1
+        version: 1.1.1
+
+packages:
+
+  '@oarkflow/lithe@1.1.1':
+    resolution: {integrity: sha512-8/DFYJWh8Y3cJH7fW5giK16b4JRwWYDeCae+EMlf9iHpK2Tm6KgCMCGjC5FjHk0kLuwDEDUVOrBDmzCm8/n1Yg==}
+    engines: {node: '>=22.6.0'}
+    hasBin: true
+
+snapshots:
+
+  '@oarkflow/lithe@1.1.1': {}

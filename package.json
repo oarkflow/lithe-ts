@@ -1,6 +1,6 @@
 {
 	"name": "@oarkflow/lithe",
-	"version": "1.1.1",
+	"version": "1.1.2",
 	"private": false,
 	"type": "module",
 	"description": "Lithe v1.1: a zero-dependency TypeScript-first compiler, fine-grained frontend/full-stack framework built on browser APIs and Node.js built-ins.",
@@ -54,6 +54,8 @@
 		"build:demo": "node --experimental-strip-types --trace-warnings cli/lithe.ts build examples/todo",
 		"dev": "node --experimental-strip-types --trace-warnings cli/lithe.ts dev examples/todo",
 		"dev:demo": "node --experimental-strip-types --trace-warnings cli/lithe.ts dev examples/todo",
+		"build:libdemo": "node --experimental-strip-types --trace-warnings cli/lithe.ts build examples/lib-demo",
+		"dev:libdemo": "node --experimental-strip-types --trace-warnings cli/lithe.ts dev examples/lib-demo",
 		"analyze:demo": "node --experimental-strip-types --trace-warnings cli/lithe.ts analyze examples/todo",
 		"benchmark": "node --experimental-strip-types --trace-warnings benchmarks/reactive.ts",
 		"typecheck": "node --experimental-strip-types --trace-warnings cli/lithe.ts sourcecheck .",
