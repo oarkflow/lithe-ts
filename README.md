@@ -12,6 +12,7 @@ The entire framework — runtime, compiler, build tooling, dev server, and CLI �
 
 - [Installation](#installation)
 - [Quick start](#quick-start)
+- [Complete router example](#complete-router-example)
 - [Core programming model](#core-programming-model)
 - [What is included](#what-is-included)
 - [Entry points](#entry-points)
@@ -53,11 +54,32 @@ Install the published package:
 npm install @oarkflow/lithe
 ```
 
-The minimum production entry points are `@oarkflow/lithe/core` (reactive signals, computed values, stores, contexts, ownership) and `@oarkflow/lithe/dom` (mount, hydration, JSX runtime, control-flow components).
+Create the standard root `index.html` alongside `src/index.tsx`:
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lithe app</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>
+```
+
+The minimum production entry points are `@oarkflow/lithe/signals` (the
+lightweight signal/computed/effect scheduler) and `@oarkflow/lithe/dom` (mount,
+hydration, JSX runtime, control-flow components). Use `@oarkflow/lithe/core`
+when stores, contexts, ownership, resumability, or adaptive scheduling are
+needed.
 
 ```tsx
-import { signal, computed } from '@oarkflow/lithe/core';
-import { mount } from '@oarkflow/lithe/dom';
+import { signal, computed } from '@oarkflow/lithe/signals';
+import { createRoot } from '@oarkflow/lithe/dom';
 
 const count = signal<number>(0, { name: 'count' });
 const doubled = computed(() => count.value * 2);
@@ -68,7 +90,177 @@ function Counter() {
   </button>;
 }
 
-mount(document.getElementById('app'), <Counter />);
+createRoot(document.getElementById('app')!).render(<Counter />);
+```
+
+`createRoot(container).render(view)` is the React-style default mount API;
+call `.unmount()` to dispose the root and all owned effects/listeners.
+
+For the smallest signal-driven browser entry, import from
+`@oarkflow/lithe/signals`. It excludes stores, DevTools, resumability,
+adaptive scheduling, and other higher-level modules. Use
+`@oarkflow/lithe/core` when those features are needed.
+
+## Complete router example
+
+`@oarkflow/lithe/router` supports ordinary routes, lazy route components, nested
+children, groups, layouts, loaders, middleware, search parameters, prefetching,
+navigation, and a wildcard 404 route. A small application can be wired like
+this:
+
+```tsx
+// src/index.tsx — the default browser entry
+import { mount } from '@oarkflow/lithe/dom';
+import {
+  createRouter,
+  group,
+  lazyRoute,
+  Link,
+  type RouterContext
+} from '@oarkflow/lithe/router';
+
+// The import is not fetched until /reports is visited or prefetched.
+const Reports = lazyRoute(() => import('./views/Reports.tsx'), {
+  exportName: 'Reports',
+  fallback: <p>Loading reports…</p>,
+  onError: error => console.error('Could not load reports', error)
+});
+
+const requireUser = async (_context: RouterContext, next: () => Promise<unknown>) => {
+  if (!localStorage.getItem('user')) return 'Sign in to continue';
+  return next();
+};
+
+function AppLayout(props: { outlet?: unknown }) {
+  return <>
+    <header>
+      <Link to="/">Home</Link>{' '}
+      <Link to="/reports" prefetch="visible">Reports</Link>{' '}
+      <Link to="/admin/users">Admin</Link>
+    </header>
+    <main>{props.outlet}</main>
+  </>;
+}
+
+function AdminLayout(props: { outlet?: unknown }) {
+  return <section>
+    <h1>Administration</h1>
+    <nav><Link to="/admin/users">Users</Link></nav>
+    {props.outlet}
+  </section>;
+}
+
+function Home() {
+  return <><h1>Home</h1><p>Welcome to Lithe.</p></>;
+}
+
+function Users(props: { data?: { users: string[] } }) {
+  return <ul>{props.data?.users.map(user => <li>{user}</li>)}</ul>;
+}
+
+const router = createRouter({
+  viewTransitions: true,
+  middleware: [async (_context, next) => {
+    console.log('before every route');
+    return next();
+  }],
+  routes: [
+    // A group can organize routes without adding a URL segment.
+    group([
+      { path: '/', component: Home },
+      {
+        path: '/reports',
+        component: Reports,
+        load: ({ search }) => ({ range: search.range || 'week' }),
+        searchSchema: {
+          parse(value: unknown) {
+            const input = value as Record<string, unknown>;
+            return { range: input.range === 'month' ? 'month' : 'week' };
+          }
+        }
+      },
+      group([
+        {
+          path: '',
+          index: true,
+          component: () => <p>Select an admin page.</p>
+        },
+        {
+          path: 'users',
+          component: Users,
+          load: async () => ({ users: ['Ada', 'Grace'] })
+        }
+      ], { path: '/admin', layout: AdminLayout, middleware: [requireUser] })
+    ], { layout: AppLayout }),
+    { path: '*', component: () => <><h1>404</h1><Link to="/">Go home</Link></> }
+  ]
+});
+
+router.start();
+mount(document.getElementById('app')!, <router.View />);
+
+// Imperative navigation and data/component prefetching are also available:
+async function warmReports() {
+  await router.prefetch('/reports?range=month');
+}
+async function openAdmin() {
+  await router.navigate('/admin/users', { replace: true, transition: true });
+}
+```
+
+The lazy view can export a named component:
+
+```tsx
+// src/views/Reports.tsx
+export function Reports({ data }: { data?: { range: string } }) {
+  return <article><h1>Reports</h1><p>Range: {data?.range}</p></article>;
+}
+```
+
+For typed route definitions, use `TypedRouteDefinition` (or infer a route
+loader with `defineLoader`) and read `params`, `search`, `data`, `router`, and
+`outlet` from the component props:
+
+```tsx
+import { defineLoader, type TypedRouteDefinition } from '@oarkflow/lithe/router';
+
+const loadProject = defineLoader(async ({ params }) =>
+  fetch(`/api/projects/${params.id}`).then(response => response.json())
+);
+
+const projectRoute: TypedRouteDefinition<
+  { id: string },
+  { tab?: string },
+  { name: string }
+> = {
+  path: '/projects/:id',
+  load: loadProject,
+  component: ({ params, search, data }) => (
+    <h1>{data?.name} — {params.id} — {search.tab || 'overview'}</h1>
+  )
+};
+```
+
+Use `layout` on a route or group to wrap its matched default outlet. Use
+`outlets` for named parallel views and render one with
+`router.Outlet({ name: 'sidebar' })`. `Link` intercepts same-origin clicks and
+prefetches by default; set `prefetch={false}` to disable it.
+
+For example, a route can provide a default page and a parallel sidebar:
+
+```tsx
+const dashboardRoutes = [{
+  path: '/dashboard',
+  component: Dashboard,
+  outlets: { sidebar: lazyRoute(() => import('./views/Sidebar.tsx')) }
+}];
+
+function DashboardApp() {
+  return <>
+    <router.View />
+    <aside><router.Outlet name="sidebar" /></aside>
+  </>;
+}
 ```
 
 **Development from this repository** (no `npm install` required):
@@ -136,6 +328,18 @@ useCart.getState().add('apple');          // imperative mutation
 ```
 
 Stores also support `persist`, `history` (undo/redo), `devtools` middleware, immutable `produce`, and context-scoped stores via `createContextStore`.
+
+Offline mutation queues are bounded to 1,000 retained operations by default to
+keep memory and browser storage predictable. Configure the limit, or explicitly
+opt out when durable retention is required:
+
+```ts
+import { createMutationQueue } from '@oarkflow/lithe/offline';
+import { createPersistentMutationQueue } from '@oarkflow/lithe/sync';
+
+const memoryQueue = createMutationQueue('app:mutations', { maxItems: 250 });
+const durableQueue = createPersistentMutationQueue(storage, 'app:mutations', { maxItems: 0 });
+```
 
 ---
 
@@ -209,8 +413,9 @@ The published package exposes a full map of subpath entry points, each with its 
 
 | Entry point | What it provides |
 | --- | --- |
-| `@oarkflow/lithe` / `./runtime` | Convenience barrel of `core` + `dom` |
+| `@oarkflow/lithe` / `./runtime` | Lightweight React-like entry: signals plus `mount`/`createRoot` |
 | `@oarkflow/lithe/core` | Signals, computed, effects, stores, contexts, ownership, scheduling, adaptive, resume |
+| `@oarkflow/lithe/signals` | Minimal signals, computed values, effects, state, scheduling, and transitions |
 | `@oarkflow/lithe/dom` | Mount/hydrate, JSX runtime, control-flow components, portals, islands, resume |
 | `@oarkflow/lithe/forms` | Schemas, forms, validation, `AutoForm`, JSON Schema/OpenAPI |
 | `@oarkflow/lithe/router` | Router, Link/Outlet, loaders, lazy routes |
@@ -289,7 +494,7 @@ npm run build            # or: lithe build
 npm run dev              # or: lithe dev
 ```
 
-Its `src/main.tsx` imports `signal`/`computed` from `@oarkflow/lithe/core` and `mount` from `@oarkflow/lithe/dom`. This is the reference for how to wire Lithe into your own project.
+Its `src/index.tsx` imports `signal`, `computed`, and `mount` from the default `@oarkflow/lithe` entrypoint. This is the reference for how to wire Lithe into your own project; use the optimized subpaths when minimizing the browser module graph.
 
 ```bash
 npm run build:libdemo    # build the library demo from the repo root
@@ -390,7 +595,7 @@ export default defineConfig({
 import { litheRollupPlugin } from '@oarkflow/lithe/rollup';
 
 export default {
-  input: 'src/main.tsx',
+  input: 'src/index.tsx',
   output: { dir: 'dist', format: 'esm' },
   plugins: [
     litheRollupPlugin({ typescript: true })

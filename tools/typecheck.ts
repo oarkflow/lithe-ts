@@ -8,6 +8,7 @@ import { exists, walk, FRAMEWORK_ROOT } from './shared.ts';
 
 const publicModules = {
 	'@oarkflow/lithe/core': 'src/core/index.ts',
+	'@oarkflow/lithe/signals': 'src/signals.ts',
 	'@oarkflow/lithe/dom': 'src/dom/index.ts',
 	'@oarkflow/lithe/router': 'src/router/index.ts',
 	'@oarkflow/lithe/data': 'src/data/index.ts',

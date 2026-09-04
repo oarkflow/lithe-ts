@@ -1,3 +1,5 @@
+import { getOwner, onCleanup } from '../core/owner.ts';
+
 export function animate(element, keyframes, options = {}) {
     if (!element?.animate) return {
         finished: Promise.resolve(),
@@ -24,9 +26,13 @@ export function spring(options = {}) {
         let x = from,
             v = 0,
             last = performance.now(),
-            frame;
-        return new Promise(resolve => {
+            frame = null,
+            cancelled = false,
+            resolveResult;
+        const result = new Promise(resolve => {
+            resolveResult = resolve;
             const step = now => {
+                if (cancelled) return;
                 const dt = Math.min((now - last) / 1000, 0.032);
                 last = now;
                 const force = -stiffness * (x - to);
@@ -43,5 +49,22 @@ export function spring(options = {}) {
             };
             frame = requestAnimationFrame(step);
         });
+        const cancel = () => {
+            if (cancelled) return;
+            cancelled = true;
+            if (frame != null) cancelAnimationFrame(frame);
+            resolveResult?.(x);
+        };
+        const finish = () => {
+            if (cancelled) return;
+            cancelled = true;
+            if (frame != null) cancelAnimationFrame(frame);
+            onUpdate(to);
+            resolveResult?.(to);
+        };
+        (result as any).cancel = cancel;
+        (result as any).finish = finish;
+        if (getOwner()) onCleanup(cancel);
+        return result;
     };
 }

@@ -1,13 +1,18 @@
 import { signal, computed } from '../core/reactive.ts';
 import { h } from '../dom/vnode.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 
 function lowerBound(offsets,value){let lo=0,hi=offsets.length-1;while(lo<hi){const mid=(lo+hi)>>1;if(offsets[mid]<value)lo=mid+1;else hi=mid;}return Math.max(0,lo-1);}
 export function createVirtualizer(options){
   const scrollTop=signal(0),viewport=signal(options.viewport||600),revision=signal(0),measurements=new Map();
+  let disposed=false;
   const count=typeof options.count==='function'?options.count:()=>options.count,estimate=options.estimate||40,overscan=options.overscan??5;
+  const maxMeasurements=options.maxMeasurements===0?Infinity:options.maxMeasurements??10000;
   const layout=computed(()=>{revision.value;const total=count(),offsets=new Array(total+1);offsets[0]=0;for(let i=0;i<total;i++)offsets[i+1]=offsets[i]+(measurements.get(i)||estimate);return{offsets,size:offsets[total]||0};});
   const range=computed(()=>{const {offsets,size}=layout.value,total=count();const start=Math.max(0,lowerBound(offsets,scrollTop.value)-overscan);let end=start;const limit=scrollTop.value+viewport.value;while(end<total&&offsets[end]<limit)end++;end=Math.min(total,end+overscan);return{start,end,total,size,offset:offsets[start]||0,offsets};});
-  return{scrollTop,viewport,range,estimate,measure(index,size){if(size>0&&!Object.is(measurements.get(index),size)){measurements.set(index,size);revision.value++;}},clearMeasurements(){measurements.clear();revision.value++;},offsetFor(index){return layout.value.offsets[index]||0;},sizeFor(index){return measurements.get(index)||estimate;}};
+  const api={scrollTop,viewport,range,estimate,measure(index,size){if(disposed||size<=0||Object.is(measurements.get(index),size))return;measurements.set(index,size);while(measurements.size>maxMeasurements)measurements.delete(measurements.keys().next().value);revision.value++;},clearMeasurements(){if(disposed)return;measurements.clear();revision.value++;},offsetFor(index){return disposed?0:layout.value.offsets[index]||0;},sizeFor(index){return disposed?estimate:measurements.get(index)||estimate;},dispose(){if(disposed)return;disposed=true;measurements.clear();layout.dispose?.();range.dispose?.();}};
+  if(getOwner()) onCleanup(api.dispose);
+  return api;
 }
 export function VirtualList(props){
   const items=()=>typeof props.items==='function'?props.items():props.items||[];const v=createVirtualizer({count:()=>items().length,estimate:props.estimate||40,viewport:props.height||500,overscan:props.overscan});

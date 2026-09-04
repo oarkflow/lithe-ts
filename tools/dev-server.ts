@@ -91,6 +91,8 @@ async function watchTree(root, onChange) {
 export async function devServer(projectDir, options = {}) {
 	const root = path.resolve(projectDir);
 	const publicDir = path.join(root, 'public');
+	const rootIndex = path.join(root, 'index.html');
+	const indexFile = await exists(rootIndex) ? rootIndex : path.join(publicDir, 'index.html');
 	const port = Number(options.port ?? 3000);
 	const clients = new Set();
 	const graph = new Map();
@@ -175,13 +177,13 @@ export async function devServer(projectDir, options = {}) {
 			} else if (reqPath.startsWith('/src/')) {
 				file = safe(root, reqPath);
 			} else {
-				file = safe(publicDir, reqPath === '/' ? '/index.html' : reqPath);
+				file = reqPath === '/' ? indexFile : safe(publicDir, reqPath);
 			}
 
 			if (file) file = await resolveSource(file);
 
 			if (!file || !await exists(file)) {
-				file = path.join(publicDir, 'index.html');
+				file = indexFile;
 				if (!await exists(file)) {
 					res.writeHead(404);
 					res.end('Not Found');

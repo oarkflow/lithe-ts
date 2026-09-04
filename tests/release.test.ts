@@ -32,7 +32,9 @@ test('core library build emits only reactive DOM package surface', async () => {
     const result=await buildLibraryPackage({outDir:out,mode:'core'});
     assert.ok(result.files.includes('package.json'));
     assert.ok(result.files.includes('src/core/index.js'));
+    assert.ok(result.files.includes('src/signals.js'));
     assert.ok(result.files.includes('src/dom/index.js'));
+    assert.equal(result.files.includes('src/core/types.js'),false);
     assert.ok(result.files.includes('types/exports/core.d.ts'));
     assert.equal(result.files.some(x=>x.startsWith('src/router/')),false);
     assert.equal(result.files.some(x=>x.startsWith('src/server/')),false);
@@ -42,15 +44,36 @@ test('core library build emits only reactive DOM package surface', async () => {
     assert.equal(result.files.some(x=>x.startsWith('src/compiler/')),false);
     assert.equal(result.files.some(x=>x.startsWith('src/plugins/')),false);
     assert.equal(result.files.some(x=>x.startsWith('examples/')),false);
-    assert.ok(result.runtimeBytes<85_000,`core runtime is ${result.runtimeBytes} bytes`);
+    assert.ok(result.runtimeBytes<86_000,`core runtime is ${result.runtimeBytes} bytes`);
     assert.ok(result.runtimeGzipBytes<30_000,`core runtime gzip is ${result.runtimeGzipBytes} bytes`);
     assert.ok(result.declarationBytes<25_000,`core declarations are ${result.declarationBytes} bytes`);
     const declarations=await fs.readFile(path.join(out,'types/lithe.d.ts'),'utf8');
     assert.match(declarations,/declare module '@oarkflow\/lithe\/core'/);
+    assert.match(declarations,/interface SignalOptions/);
+    assert.match(declarations,/interface ObserverOptions/);
     assert.doesNotMatch(declarations,/declare module '@oarkflow\/lithe\/router'/);
+    const pkg=JSON.parse(await fs.readFile(path.join(out,'package.json'),'utf8'));
+    for (const value of Object.values(pkg.exports) as Array<{ types?: string; import?: string }>) {
+      for (const target of [value.types, value.import]) if (target) await fs.access(path.join(out, target.slice(2)));
+    }
     const runtime=await import(pathToFileURL(path.join(out,'src/runtime/index.js')).href);
     const count=runtime.signal(1);
     assert.equal(count.value,1);
+    const signals=await import(pathToFileURL(path.join(out,'src/signals.js')).href);
+    assert.equal(signals.signal(2).value,2);
+
+    const consumer=await fs.mkdtemp(path.join(os.tmpdir(),'lithe-consumer-'));
+    try {
+      const packageDir=path.join(consumer,'node_modules','@oarkflow');
+      await fs.mkdir(packageDir,{recursive:true});
+      await fs.symlink(out,path.join(packageDir,'lithe'),'dir');
+      const entry=path.join(consumer,'index.mjs');
+      await fs.writeFile(entry,`import { signal, createRoot, mount } from '@oarkflow/lithe';\nexport { signal, createRoot, mount };\n`);
+      const consumerRuntime=await import(pathToFileURL(entry).href);
+      assert.equal(consumerRuntime.signal(3).value,3);
+      assert.equal(typeof consumerRuntime.createRoot,'function');
+      assert.equal(typeof consumerRuntime.mount,'function');
+    } finally { await fs.rm(consumer,{recursive:true,force:true}); }
   } finally { await fs.rm(out,{recursive:true,force:true}); }
 });
 
@@ -64,6 +87,11 @@ test('runtime library build emits app modules without CLI tooling or examples', 
     assert.equal(result.files.some(x=>x.startsWith('cli/')),false);
     assert.equal(result.files.some(x=>x.startsWith('tools/')),false);
     assert.equal(result.files.some(x=>x.startsWith('examples/')),false);
+    const pkg=JSON.parse(await fs.readFile(path.join(out,'package.json'),'utf8'));
+    assert.equal(pkg.main,'./src/runtime/index.js');
+    assert.equal(pkg.module,'./src/runtime/index.js');
+    assert.equal(pkg.exports['.'].import,'./src/runtime/index.js');
+    assert.equal(pkg.exports['.'].types,'./types/exports/index.d.ts');
   } finally { await fs.rm(out,{recursive:true,force:true}); }
 });
 
@@ -80,7 +108,12 @@ test('full library build emits CLI and tooling without examples', async () => {
     assert.equal(pkg.name,'@oarkflow/lithe');
     assert.equal(pkg.private,undefined);
     assert.equal(pkg.publishConfig.access,'public');
+    assert.equal(pkg.sideEffects,false);
     assert.equal(pkg.bin.lithe,'cli/lithe.js');
+    assert.equal(pkg.main,'./src/runtime/index.js');
+    assert.equal(pkg.module,'./src/runtime/index.js');
+    assert.equal(pkg.exports['./runtime'].types,'./types/exports/runtime.d.ts');
+    assert.equal(pkg.exports['./runtime'].import,'./src/runtime/index.js');
     assert.equal(pkg.exports['./core'].types,'./types/exports/core.d.ts');
     assert.equal(pkg.exports['./core'].import,'./src/core/index.js');
     const declarations=await fs.readFile(path.join(out,'types/lithe.d.ts'),'utf8');

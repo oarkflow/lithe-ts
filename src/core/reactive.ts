@@ -10,6 +10,16 @@ const proxyCache = new WeakMap<object, object>();
 const depsByTarget = new WeakMap<object, Map<PropertyKey, Dependency>>();
 const STATE_CLEAN = 0;
 const STATE_DIRTY = 1;
+function reportCleanupError(error: unknown): void {
+    const reportError = (globalThis as any).reportError;
+    if (typeof reportError === 'function') {
+        reportError(error);
+        return;
+    }
+    queueMicrotask(() => {
+        throw error;
+    });
+}
 export class Dependency {
     id: number;
     label: string;
@@ -94,7 +104,15 @@ function queueObserver(observer: any) {
         pendingObservers.add(observer);
         return;
     }
-    if (observer.sync) observer.run(); else schedule(() => observer.run(), observer.priority || 'normal');
+    if (observer.queued) return;
+    observer.queued = true;
+    const run = () => {
+        observer.queued = false;
+        observer.scheduledCancel = null;
+        observer.run();
+    };
+    if (observer.sync) run();
+    else observer.scheduledCancel = schedule(run, observer.priority || 'normal');
 }
 function flushBatch() {
     const list = Array.from(pendingObservers);
@@ -118,6 +136,8 @@ export class Observer<T = unknown> {
     kind: string;
     label: string;
     output: Dependency | null;
+    queued: boolean;
+    scheduledCancel: (() => void) | null;
     lastCause: {
         id: number;
         name: string | null;
@@ -141,6 +161,8 @@ export class Observer<T = unknown> {
         this.kind = options.kind || 'effect';
         this.label = options.name || '';
         this.output = null;
+        this.queued = false;
+        this.scheduledCancel = null;
         this.lastCause = null;
         globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerObserver?.(this);
         this.run();
@@ -165,11 +187,22 @@ export class Observer<T = unknown> {
     cleanupDeps() {
         const len = this.dependencies.length;
         for (let i = 0; i < len; i++) {
-            this.dependencies[i].removeSubscriber(this);
+            try {
+                this.dependencies[i].removeSubscriber(this);
+            } catch (error) {
+                reportCleanupError(error);
+            }
         }
         this.dependencies.length = 0;
         for (let i = this.cleanups.length - 1; i >= 0; i--) {
-            this.cleanups[i]();
+            try {
+                this.cleanups[i]();
+            } catch (error) {
+                // A cleanup must not prevent the rest of the observer graph
+                // from being detached. Surface the error after teardown so
+                // the observer remains usable and does not get stuck running.
+                reportCleanupError(error);
+            }
         }
         this.cleanups.length = 0;
     }
@@ -193,6 +226,10 @@ export class Observer<T = unknown> {
     }
     dispose() {
         this.disposed = true;
+        pendingObservers.delete(this);
+        this.scheduledCancel?.();
+        this.scheduledCancel = null;
+        this.queued = false;
         globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.unregisterObserver?.(this);
         this.cleanupDeps();
     }
@@ -234,6 +271,13 @@ export class SignalImpl<T> extends Dependency implements Signal<T> {
             if (globalThis.__LITHE_HMR__) {
                 (globalThis.__LITHE_HMR_SIGNAL_REGISTRY__ ||= new Map()).set(name, this);
             }
+            const owner = getOwner();
+            if (owner) onCleanup(() => {
+                const namedSignals = globalThis.__LITHE_NAMED_SIGNALS__;
+                if (namedSignals?.get(name) === this) namedSignals.delete(name);
+                const hmrSignals = globalThis.__LITHE_HMR_SIGNAL_REGISTRY__;
+                if (hmrSignals?.get(name) === this) hmrSignals.delete(name);
+            });
         }
     }
     get value(): T {
@@ -272,6 +316,8 @@ export class SignalImpl<T> extends Dependency implements Signal<T> {
             sync: opts.sync ?? true,
             priority: opts.priority
         });
+        const owner = getOwner();
+        if (owner) onCleanup(() => obs.dispose());
         return () => obs.dispose();
     }
     toJSON() {
@@ -289,7 +335,6 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     _value: T = undefined as any;
     _state: number = STATE_DIRTY;
     _deps: Dependency[] = [];
-    _depVersions: number[] = [];
     _owner: ReturnType<typeof getOwner>;
     _disposed = false;
     _equals: false | ((previous: T, next: T) => boolean);
@@ -297,7 +342,7 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     __computed = true;
     __dep: Dependency;
     _dep1: Dependency | null = null;
-    _dep1Version = -1;
+    _tracking: Dependency[] | null = null;
     constructor(fn: () => T, options: SignalOptions = {}) {
         super(options.name || '', 'computed');
         this._fn = fn;
@@ -309,18 +354,20 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
         }
     }
     addDependency(dep: Dependency) {
+        if (this._tracking) {
+            if (this._tracking.indexOf(dep) === -1) this._tracking.push(dep);
+            return;
+        }
         if (this._dep1 === dep || this._deps.indexOf(dep) !== -1) return;
         if (!this._dep1) {
             this._dep1 = dep;
-            this._dep1Version = dep.version;
         } else {
             this._deps.push(dep);
-            this._depVersions.push(dep.version);
         }
         dep.addSubscriber(this);
     }
     markDirty(cause?: Dependency) {
-        if (this._state === STATE_DIRTY) return;
+        if (this._disposed || this._state === STATE_DIRTY) return;
         this._state = STATE_DIRTY;
         if (this._subs) {
             const arr = this._subs.slice();
@@ -334,53 +381,11 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     }
     _update() {
         if (this._state === STATE_CLEAN) return;
-        if (this._dep1) {
-            let changed = false;
-            if (this._dep1 instanceof ComputedImpl && this._dep1._state !== STATE_CLEAN) {
-                this._dep1._update();
-            }
-            if (this._dep1Version !== this._dep1.version) {
-                changed = true;
-            }
-            if (!changed && this._deps.length > 0) {
-                const len = this._deps.length;
-                for (let i = 0; i < len; i++) {
-                    const dep = this._deps[i];
-                    if (dep instanceof ComputedImpl && dep._state !== STATE_CLEAN) {
-                        dep._update();
-                    }
-                    if (this._depVersions[i] !== dep.version) {
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-            if (!changed) {
-                this._state = STATE_CLEAN;
-                return;
-            }
-
-            // In-place re-evaluation without resubscription churn
-            const prevObserver = activeObserver;
-            activeObserver = null;
-            try {
-                const nextVal = this._owner ? withOwner(this._owner, this._fn) : this._fn();
-                if (!this._equals || !this._equals(this._value, nextVal)) {
-                    this._value = nextVal;
-                    this.version++;
-                }
-                this._state = STATE_CLEAN;
-                this._dep1Version = this._dep1.version;
-                for (let i = 0; i < this._deps.length; i++) {
-                    this._depVersions[i] = this._deps[i].version;
-                }
-            } finally {
-                activeObserver = prevObserver;
-            }
-            return;
-        }
-
-        // Initial evaluation with dependency tracking
+        // Retrack every evaluation so conditional branches stay correct, but
+        // diff the lists to avoid subscription churn for stable computations.
+        const previous: Dependency[] = this._dep1 ? [this._dep1, ...this._deps] : [...this._deps];
+        const nextDeps: Dependency[] = [];
+        this._tracking = nextDeps;
         const prevObserver = activeObserver;
         activeObserver = this;
         try {
@@ -390,22 +395,30 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
                 this.version++;
             }
             this._state = STATE_CLEAN;
-            if (this._dep1) this._dep1Version = this._dep1.version;
-            for (let i = 0; i < this._deps.length; i++) {
-                this._depVersions[i] = this._deps[i].version;
+            this._tracking = null;
+            for (let i = 0; i < previous.length; i++) {
+                if (nextDeps.indexOf(previous[i]) === -1) previous[i].removeSubscriber(this);
             }
+            for (let i = 0; i < nextDeps.length; i++) {
+                if (previous.indexOf(nextDeps[i]) === -1) nextDeps[i].addSubscriber(this);
+            }
+            this._dep1 = nextDeps[0] || null;
+            this._deps = nextDeps.slice(1);
         } finally {
+            this._tracking = null;
             activeObserver = prevObserver;
         }
     }
     get value(): T {
         this.track();
+        if (this._disposed) return this._value;
         if (this._state !== STATE_CLEAN) {
             this._update();
         }
         return this._value;
     }
     peek(): T {
+        if (this._disposed) return this._value;
         if (this._state !== STATE_CLEAN) {
             this._update();
         }
@@ -416,6 +429,8 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
             sync: opts.sync ?? true,
             priority: opts.priority
         });
+        const owner = getOwner();
+        if (owner) onCleanup(() => obs.dispose());
         return () => obs.dispose();
     }
     dispose() {
@@ -429,7 +444,6 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
             this._deps[i].removeSubscriber(this);
         }
         this._deps.length = 0;
-        this._depVersions.length = 0;
     }
     toJSON() {
         return this.value;

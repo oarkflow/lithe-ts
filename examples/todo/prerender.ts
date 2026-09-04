@@ -1,7 +1,7 @@
 export const routes:string[]=['/','/about'];
 
 function page(title:string,body:string):string{
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="stylesheet" href="/app.css"></head><body><div id="app">${body}</div><script type="module" src="/src/main.tsx"></script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="stylesheet" href="/app.css"></head><body><div id="app">${body}</div><script type="module" src="/src/index.tsx"></script></body></html>`;
 }
 
 export function render(route:string):string{

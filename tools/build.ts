@@ -389,7 +389,7 @@ async function emitChunksBundle(out, entryModules, moduleGraph, minify = true, a
 		}
 	}
 
-	const entryKey = [...entryModules][0] || 'src/main.js';
+	const entryKey = [...entryModules][0] || (moduleGraph['src/index.js'] ? 'src/index.js' : 'src/main.js');
 	const mainCode = `const __litheModules=globalThis.__litheModules=(globalThis.__litheModules||{}),__litheCache=(globalThis.__litheCache||(globalThis.__litheCache={}));const __litheChunks=${JSON.stringify(chunkFiles)};function __litheRequire(k){if(__litheCache[k])return __litheCache[k];const e=__litheCache[k]={};__litheModules[k]?.(__litheRequire,e,__litheImport);return e}function __litheImport(k){if(__litheModules[k])return Promise.resolve(__litheRequire(k));const chunkFile=__litheChunks[k]||k;return import('/'+chunkFile).then(()=>__litheRequire(k))}globalThis.__litheRequire=__litheRequire;globalThis.__litheImport=__litheImport;\n${mainModulesCode.join('\n')}\n__litheRequire(${JSON.stringify(entryKey)});\n`;
 
 	const finalMainCode = minify ? minifyJS(mainCode) : mainCode;
@@ -602,6 +602,14 @@ export async function buildProject(projectDir, options = {}) {
 		}
 		return false;
 	});
+	// Prefer the standard root index.html convention. Keep public/index.html
+	// as a backwards-compatible fallback for existing projects.
+	const rootIndex = path.join(root, 'index.html');
+	if (await exists(rootIndex)) {
+		let html = await fs.readFile(rootIndex, 'utf8');
+		html = html.replace(/(src=["'][^"']+)\.(?:jsx|tsx|ts)(["'])/g, '$1.js$2');
+		await fs.writeFile(path.join(out, 'index.html'), html);
+	}
 	const css = [];
 	const graphs = [];
 	const moduleGraph = {};
@@ -853,8 +861,13 @@ export async function buildProject(projectDir, options = {}) {
 			if (spec.startsWith('src/')) entryModules.add(spec);
 		}
 	}
-	if (!entryModules.size && moduleGraph['src/main.js']) {
-		entryModules.add('src/main.js');
+	if (!entryModules.size) {
+		for (const candidate of ['src/index.js', 'src/main.js']) {
+			if (moduleGraph[candidate]) {
+				entryModules.add(candidate);
+				break;
+			}
+		}
 	}
 	const normalizeDep = (from, spec) => {
 		if (spec.startsWith('/')) return spec.slice(1);

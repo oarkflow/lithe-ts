@@ -1,9 +1,10 @@
 import { effect, isSignal } from '../core/reactive.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 function read(v) {
     return isSignal(v) ? v.value : typeof v === 'function' ? v() : v;
 }
 export function createHeadManager() {
-    const owned = new Set();
+    const owned = new Set(), active = new Set();
     const set = descriptor => {
         if (typeof document === 'undefined') return () => { };
         const disposers = [];
@@ -34,12 +35,22 @@ export function createHeadManager() {
                 el.remove();
             });
         }
-        return () => disposers.forEach(fn => fn());
+        let disposed = false;
+        const dispose = () => {
+            if (disposed) return;
+            disposed = true;
+            active.delete(dispose);
+            disposers.splice(0).forEach(fn => fn());
+        };
+        active.add(dispose);
+        return dispose;
     };
     const clear = () => {
+        for (const dispose of [...active]) dispose();
         for (const el of owned) el.remove();
         owned.clear();
     };
+    if (getOwner()) onCleanup(clear);
     return {
         set,
         clear

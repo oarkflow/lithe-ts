@@ -1,4 +1,5 @@
 import { createForm, getPath, setPath } from './form.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 function uid() {
     return globalThis.crypto?.randomUUID?.() || `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
@@ -23,6 +24,12 @@ export function createAdvancedForm(options = {}) {
         }
     }),
         ids = new Map();
+    const disposeForm = form.dispose;
+    form.dispose = () => {
+        clearTimeout(timer);
+        disposeForm();
+    };
+    if (getOwner()) onCleanup(() => clearTimeout(timer));
     form.fieldArray = name => {
         const arr = () => getPath(form.values, name) || [];
         let list = ids.get(name);

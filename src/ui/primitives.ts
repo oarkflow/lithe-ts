@@ -1,5 +1,6 @@
 import { h } from '../dom/vnode.ts';
 import { signal } from '../core/reactive.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 import { Show, For } from '../dom/control.ts';
 
 let uid = 0;
@@ -115,17 +116,35 @@ export function Tooltip(props) {
 }
 
 export function createToasts() {
-  const items = signal([]);
+  const items = signal([]), timers = new Map();
+  const remove = (toastId) => {
+    const timer = timers.get(toastId);
+    if (timer != null) clearTimeout(timer);
+    timers.delete(toastId);
+    items.value = items.value.filter(x => x.id !== toastId);
+  };
+  const clear = () => {
+    for (const timer of timers.values()) clearTimeout(timer);
+    timers.clear();
+    items.value = [];
+  };
+  const dispose = clear;
+  if (getOwner()) onCleanup(dispose);
   return {
     items,
     push(message, options = {}) {
       const toast = { id: id('toast'), message, ...options };
       items.value = [...items.value, toast];
-      if (options.duration !== 0) { const timer = setTimeout(() => this.remove(toast.id), options.duration || 4000); timer.unref?.(); }
+      if (options.duration !== 0) {
+        const timer = setTimeout(() => remove(toast.id), options.duration || 4000);
+        timer.unref?.();
+        timers.set(toast.id, timer);
+      }
       return toast.id;
     },
-    remove(toastId) { items.value = items.value.filter(x => x.id !== toastId); },
-    clear() { items.value = []; }
+    remove,
+    clear,
+    dispose
   };
 }
 

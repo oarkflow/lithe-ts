@@ -1,12 +1,28 @@
-const dependencies = new Map(),
+// Dependencies are owned by signals/state targets. Keeping them strongly in
+// the debug registry would make enabling DevTools retain discarded graphs.
+// Weak references preserve inspection for live nodes without extending their
+// lifetime.
+const dependencies = new Map<number, WeakRef<any>>(),
     observers = new Map(),
     listeners = new Set(),
     components = new Map();
+const MAX_COMPONENT_RECORDS = 1000;
+const MAX_DEPENDENCY_RECORDS = 10000;
+const dependencyFinalizer = typeof FinalizationRegistry !== 'undefined' ? new FinalizationRegistry(id => {
+    const ref = dependencies.get(id);
+    if (!ref || !ref.deref()) dependencies.delete(id);
+}) : null;
 let previous: any = null,
     installed = false;
 const hook = {
     registerDependency(dep) {
-        dependencies.set(dep.id, dep);
+        dependencies.set(dep.id, new WeakRef(dep));
+        dependencyFinalizer?.register(dep, dep.id, dep);
+        while (dependencies.size > MAX_DEPENDENCY_RECORDS) {
+            const oldest = dependencies.keys().next().value;
+            if (oldest === undefined) break;
+            dependencies.delete(oldest);
+        }
         previous?.registerDependency?.(dep);
     },
     registerObserver(observer) {
@@ -44,7 +60,12 @@ export function inspectReactiveGraph() {
     enableReactiveDebug();
     const nodes = [],
         edges = [];
-    for (const dep of dependencies.values()) {
+    for (const [id, ref] of dependencies) {
+        const dep = ref.deref();
+        if (!dep) {
+            dependencies.delete(id);
+            continue;
+        }
         nodes.push({
             id: dep.id,
             kind: dep.kind || 'dependency',
@@ -126,6 +147,11 @@ export function markComponent(name, meta = {}) {
         at: Date.now()
     };
     components.set(id, record);
+    while (components.size > MAX_COMPONENT_RECORDS) {
+        const oldest = components.keys().next().value;
+        if (oldest === undefined) break;
+        components.delete(oldest);
+    }
     try {
         globalThis.__LITHE_DEVTOOLS__?.record?.({
             type: 'component:mark',

@@ -19,7 +19,9 @@ export interface LibraryBuildResult {
 const ROOT_FILES = ['README.md', 'LICENSE', 'CHANGELOG.md'];
 const CORE_EXPORTS = new Set([
 	'.',
+	'./runtime',
 	'./core',
+	'./signals',
 	'./dom',
 	'./jsx-runtime',
 	'./dom/jsx-runtime',
@@ -57,6 +59,7 @@ export type LibraryBuildMode = 'core' | 'runtime' | 'full';
 
 const CORE_MODULES = new Set([
 	'core',
+	'signals.ts',
 	'dom',
 	'index.ts',
 	'jsx-dev-runtime.ts',
@@ -67,6 +70,7 @@ const CORE_MODULES = new Set([
 const CORE_DECLARATION_MODULES = new Set([
 	'@oarkflow/lithe',
 	'@oarkflow/lithe/core',
+	'@oarkflow/lithe/signals',
 	'@oarkflow/lithe/dom',
 	'@oarkflow/lithe/dom/jsx-runtime',
 	'@oarkflow/lithe/dom/jsx-dev-runtime',
@@ -213,7 +217,8 @@ export async function buildLibraryPackage(options: { outDir?: string; mode?: Lib
 			} else if (/\.(ts|tsx)$/.test(file)) {
 				const target = path.join(outDir, rel.replace(/\.(ts|tsx)$/, '.js'));
 				await writeCompiledTS(file, target);
-				emitted.push(path.relative(outDir, target));
+				if ((await fs.readFile(target, 'utf8')).trim()) emitted.push(path.relative(outDir, target));
+				else await fs.rm(target);
 			}
 		}
 	}
@@ -272,6 +277,9 @@ export async function buildLibraryPackage(options: { outDir?: string; mode?: Lib
 			? ['src', 'cli', 'tools', 'types', 'README.md', 'LICENSE', 'CHANGELOG.md']
 			: ['src', 'types', 'README.md', 'LICENSE', 'CHANGELOG.md'],
 		types: './types/exports/index.d.ts',
+		sideEffects: false,
+		main: './src/runtime/index.js',
+		module: './src/runtime/index.js',
 		exports,
 		dependencies: {},
 		devDependencies: {}

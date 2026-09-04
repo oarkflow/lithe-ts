@@ -25,11 +25,17 @@ import { __setAttribute } from '../src/dom/dom.ts';
 import { capturedEventSymbol } from '../src/dom/event-symbol.ts';
 import { QueryClient, createStoragePersister, mutation } from '../src/data/query.ts';
 import { checkProject } from '../tools/check.ts';
-import { createMemoryStorage } from '../src/offline/storage.ts';
+import { createMemoryStorage, createPersistentMutationQueue } from '../src/offline/storage.ts';
 import { imageMetadata } from '../tools/image.ts';
 import { generateTypes } from '../tools/types.ts';
 import { prerenderProject } from '../tools/prerender.ts';
 import { doctorProject } from '../tools/doctor.ts';
+import { createToasts } from '../src/ui/primitives.ts';
+import { createVirtualizer } from '../src/virtual/virtual.ts';
+import { createNetworkState } from '../src/offline/offline.ts';
+import { createAdaptiveScheduler } from '../src/core/adaptive.ts';
+import { createMutationQueue } from '../src/offline/offline.ts';
+import { css, clearCollectedCSS } from '../src/style/style.ts';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -57,6 +63,96 @@ test('nested forms and stable field arrays work', () => {
 
 test('schema emits JSON Schema', () => { const s = object({ name: string().min(2), age: number({ min: 1 }) }); const j = toJSONSchema(s); assert.equal(j.type, 'object'); assert.deepEqual(j.required.sort(), ['age', 'name']); assert.equal(j.properties.name.minLength, 2); });
 
+test('advanced form owner disposal cancels autosave', async () => {
+	let saves = 0;
+	const scope = createScope(() => createAdvancedForm({ initial: { name: '' }, autosave: async () => { saves++; }, autosaveDelay: 10 }));
+	scope.value.set('name', 'draft');
+	scope.dispose();
+	await sleep(30);
+	assert.equal(saves, 0);
+});
+
+test('toast manager clears owned state and timers on disposal', () => {
+	const scope = createScope(() => createToasts());
+	scope.value.push('temporary');
+	assert.equal(scope.value.items.value.length, 1);
+	scope.dispose();
+	assert.equal(scope.value.items.value.length, 0);
+});
+
+test('virtualizer bounds retained row measurements by default and supports an unlimited mode', () => {
+	const bounded = createVirtualizer({ count: 100, maxMeasurements: 2 });
+	bounded.measure(0, 10); bounded.measure(1, 20); bounded.measure(2, 30);
+	assert.equal(bounded.sizeFor(0), 40);
+	assert.equal(bounded.sizeFor(2), 30);
+	const unlimited = createVirtualizer({ count: 3, maxMeasurements: 0 });
+	unlimited.measure(0, 10); unlimited.measure(1, 20); unlimited.measure(2, 30);
+	assert.equal(unlimited.sizeFor(0), 10);
+});
+
+test('virtualizer disposal releases measurements and makes reads inert', () => {
+	const v = createVirtualizer({ count: 2 });
+	v.measure(0, 80);
+	assert.equal(v.sizeFor(0), 80);
+	v.dispose();
+	assert.equal(v.sizeFor(0), 40);
+	v.measure(1, 120);
+	assert.equal(v.sizeFor(1), 40);
+});
+
+test('network state removes global listeners when its owner is disposed', () => {
+	const previousWindow = globalThis.window;
+	const previousAdd = globalThis.addEventListener;
+	const previousRemove = globalThis.removeEventListener;
+	const added = [];
+	const removed = [];
+	try {
+		globalThis.window = {};
+		globalThis.addEventListener = (name, listener) => added.push([name, listener]);
+		globalThis.removeEventListener = (name, listener) => removed.push([name, listener]);
+		const network = createScope(() => {
+			const state = createNetworkState();
+			state.start();
+			return state;
+		});
+		assert.equal(added.length, 2);
+		network.dispose();
+		assert.equal(removed.length, 2);
+	} finally {
+		globalThis.window = previousWindow;
+		globalThis.addEventListener = previousAdd;
+		globalThis.removeEventListener = previousRemove;
+	}
+});
+
+test('offline mutation queues bound retained operations by default and support unlimited mode', async () => {
+	const queue = createMutationQueue(`queue-${Date.now()}`, { maxItems: 2 });
+	queue.add({ value: 1 }); queue.add({ value: 2 }); queue.add({ value: 3 });
+	assert.deepEqual(queue.list().map(item => item.value), [2, 3]);
+	const storage = createMemoryStorage();
+	const persistentKey = `persistent-${Date.now()}`;
+	await storage.setItem(persistentKey, JSON.stringify([{ value: 1 }, { value: 2 }, { value: 3 }]));
+	const persistent = createPersistentMutationQueue(storage, persistentKey, { maxItems: 2 });
+	assert.deepEqual((await persistent.list()).map(item => item.value), [2, 3]);
+	assert.deepEqual(JSON.parse(await storage.getItem(persistentKey)).map(item => item.value), [2, 3]);
+	await persistent.add({ value: 1 }); await persistent.add({ value: 2 }); await persistent.add({ value: 3 });
+	assert.deepEqual((await persistent.list()).map(item => item.value), [2, 3]);
+});
+
+test('adaptive scheduler rejects queued work and releases it on disposal', async () => {
+	const scope = createScope(() => {
+		const scheduler = createAdaptiveScheduler({ concurrency: 1 });
+		const running = scheduler.schedule(() => new Promise(() => {}));
+		const pending = scheduler.schedule(() => 2);
+		return { scheduler, running, pending };
+	});
+	assert.equal(scope.value.scheduler.pending, 1);
+	scope.dispose();
+	await assert.rejects(scope.value.pending, /disposed/);
+	void scope.value.running;
+	assert.equal(scope.value.scheduler.pending, 0);
+});
+
 test('collection indexes and incremental predicates update only logical result', () => {
 	const c = collection([{ id: 1, status: 'open' }, { id: 2, status: 'closed' }]); const idx = c.indexBy('status'); assert.deepEqual(idx.get('open').map(x => x.id), [1]); const q = c.incrementalWhere(x => x.status === 'open'); c.update(2, { status: 'open' }); assert.deepEqual(q.value.map(x => x.id).sort(), [1, 2]); q.dispose();
 });
@@ -72,9 +168,63 @@ test('collection snapshots are reactive for list renders', () => {
 	stop();
 });
 
+test('owner disposal releases incremental collection watchers', () => {
+	const c = collection([{ id: 1, active: true }]);
+	let query: any;
+	const scope = createScope(() => {
+		query = c.where(item => item.active);
+		return query;
+	});
+	assert.equal(query.value.length, 1);
+	scope.dispose();
+	c.update(1, { active: false });
+	assert.equal(query.value.length, 1);
+});
+
+test('collection disposal clears retained indexes and makes mutations inert', () => {
+	const c = collection([{ id: 1, status: 'open' }]);
+	c.indexBy('status');
+	c.incrementalWhere(item => item.status === 'open');
+	c.dispose();
+	assert.equal(c.size, 0);
+	assert.equal(c.insert({ id: 2, status: 'closed' }), undefined);
+	assert.deepEqual(c.indexBy('status').get('closed'), []);
+	c.dispose();
+});
+
 test('LWW CRDT deterministically resolves operations', () => { const a = new LWWMap('a'), b = new LWWMap('b'); const op = a.set('x', 1); b.apply(op); const newer = b.set('x', 2); a.apply(newer); assert.equal(a.get('x'), 2); assert.equal(b.get('x'), 2); });
 
 test('ISR returns stale value and revalidates', async () => { let n = 0; const cache = createISRCache({ ttl: 1 }); assert.equal((await cache.get('x', async () => ++n)).value, 1); await sleep(3); const stale = await cache.get('x', async () => ++n); assert.equal(stale.value, 1); assert.equal(stale.stale, true); await sleep(1); assert.equal((await cache.get('x', async () => ++n)).value, 2); });
+
+test('ISR cache bounds retained keys and supports unlimited mode', async () => {
+	const cache = createISRCache({ maxEntries: 2 });
+	await cache.get('a', async () => 'a'); await cache.get('b', async () => 'b'); await cache.get('c', async () => 'c');
+	assert.deepEqual(cache.inspect().map(x => x.key), ['b', 'c']);
+	const unlimited = createISRCache({ maxEntries: 0 });
+	await unlimited.get('a', async () => 'a'); await unlimited.get('b', async () => 'b');
+	assert.equal(unlimited.inspect().length, 2);
+});
+
+test('clearing collected CSS removes generated style nodes', () => {
+	const previousDocument = (globalThis as any).document;
+	const removed: any[] = [];
+	(globalThis as any).document = {
+		querySelector: () => null,
+		createElement: () => {
+			const node = { dataset: {}, remove() { removed.push(node); } };
+			return node;
+		},
+		head: { appendChild() { } }
+	};
+	try {
+		css({ color: 'red' }, { name: `test-style-${Date.now()}` });
+		clearCollectedCSS();
+		assert.equal(removed.length, 1);
+	} finally {
+		(globalThis as any).document = previousDocument;
+		clearCollectedCSS();
+	}
+});
 
 test('streaming SSR emits fallback then independent replacement', async () => { const chunks = []; for await (const x of renderToStream(h('main', null, streamBoundary(Promise.resolve(h('b', null, 'done')), h('i', null, 'wait'))), { document: false })) chunks.push(x); assert.match(chunks[0], /wait/); assert.ok(chunks.some(x => x.includes('data-lithe-replace'))); });
 
@@ -88,7 +238,25 @@ test('prerender command writes route HTML without dependencies', async () => { c
 
 test('devtools exposes component metadata and debugger snapshots', () => { const tools = createDevtools(); const scope = createScope(() => 42, { name: 'DebugComponent' }); try { assert.ok(tools.components().some(x => x.name === 'DebugComponent')); tools.debugger.pause(); assert.equal(globalThis.__LITHE_DEBUG_PAUSED__, true); assert.ok(tools.debugger.snapshot().components.some(x => x.name === 'DebugComponent')); tools.debugger.resume(); } finally { scope.dispose(); tools.dispose(); } });
 
-test('delegated events expose the matched element as currentTarget', () => { const listeners = new Map(); const root = { parentNode: null, addEventListener(type, fn) { listeners.set(type, fn); }, removeEventListener() { } }; const input = { parentNode: root }; let current; installDelegatedEvents(root, ['change']); setDelegatedEvent(input, 'onChange', event => { current = event.currentTarget; }); listeners.get('change')({ target: input, cancelBubble: false }); assert.equal(current, input); });
+test('devtools disposal releases history and installed global references', () => {
+	const tools = createDevtools();
+	tools.record({ type: 'retained', value: { data: 'large' } });
+	tools.installGlobal('__LITHE_TEST_DEVTOOLS__');
+	tools.dispose();
+	assert.equal(tools.history.length, 0);
+	assert.equal((globalThis as any).__LITHE_TEST_DEVTOOLS__, undefined);
+	tools.dispose();
+});
+
+test('delegated events expose the matched element as currentTarget', () => { const listeners = new Map(); let adds = 0; const root = { parentNode: null, addEventListener(type, fn) { adds++; listeners.set(type, fn); }, removeEventListener() { } }; const input = { parentNode: root }; let current; installDelegatedEvents(root, ['change', 'change']); assert.equal(adds, 1); setDelegatedEvent(input, 'onChange', event => { current = event.currentTarget; }); listeners.get('change')({ target: input, cancelBubble: false }); assert.equal(current, input); });
+
+test('delegated root listeners follow owner scope disposal', () => {
+	let removed = 0;
+	const root = { parentNode: null, addEventListener() {}, removeEventListener() { removed++; } };
+	const scope = createScope(() => installDelegatedEvents(root, ['click', 'input']));
+	scope.dispose();
+	assert.equal(removed, 2);
+});
 
 test('delegated events keep currentTarget stable across async handlers', async () => {
 	const listeners = new Map();

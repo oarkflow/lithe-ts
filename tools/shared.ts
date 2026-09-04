@@ -38,6 +38,7 @@ export const aliases = {
 	'@oarkflow/lithe': 'runtime/index.js',
 	'@oarkflow/lithe/runtime': 'runtime/index.js',
 	'@oarkflow/lithe/core': 'core/index.js',
+	'@oarkflow/lithe/signals': 'signals.js',
 	'@oarkflow/lithe/dom': 'dom/index.js',
 	'@oarkflow/lithe/router': 'router/index.js',
 	'@oarkflow/lithe/data': 'data/index.js',
@@ -65,6 +66,13 @@ export const aliases = {
 };
 
 const directExports = {
+	'@oarkflow/lithe/signals': {
+		signal: 'core/reactive.js', computed: 'core/reactive.js', effect: 'core/reactive.js',
+		batch: 'core/reactive.js', untrack: 'core/reactive.js', state: 'core/reactive.js',
+		watch: 'core/reactive.js', isSignal: 'core/reactive.js', unwrap: 'core/reactive.js',
+		schedule: 'core/scheduler.js', scheduler: 'core/scheduler.js',
+		transition: 'core/scheduler.js', flushSync: 'core/scheduler.js'
+	},
 	'@oarkflow/lithe/core': {
 		signal: 'core/reactive.js', computed: 'core/reactive.js', effect: 'core/reactive.js',
 		batch: 'core/reactive.js', untrack: 'core/reactive.js', state: 'core/reactive.js',

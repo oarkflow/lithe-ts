@@ -1,5 +1,5 @@
 let counter = 0;
-const sheets = new Map();
+const sheets = new Map(), elements = new Map();
 function kebab(key) {
     return key.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`);
 }
@@ -24,6 +24,7 @@ export function css(rules, options = {}) {
         el.dataset.litheStyle = name;
         el.textContent = text;
         document.head.appendChild(el);
+        elements.set(name, el);
     }
     return name;
 }
@@ -44,6 +45,7 @@ export function defineTheme(tokens, options = {}) {
         el.dataset.litheStyle = name;
         el.textContent = text;
         document.head.appendChild(el);
+        elements.set(name, el);
     }
     return {
         name,
@@ -55,5 +57,7 @@ export function collectedCSS() {
     return [...sheets.values()].join('\n');
 }
 export function clearCollectedCSS() {
+    for (const el of elements.values()) el.remove();
+    elements.clear();
     sheets.clear();
 }

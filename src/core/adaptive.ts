@@ -1,10 +1,13 @@
 import { schedule } from './scheduler.ts';
+import { getOwner, onCleanup } from './owner.ts';
 let batteryState = {
     supported: false,
     low: false
 },
     batteryInit = null,
-    batteryRef = null;
+    batteryRef = null,
+    batteryCleanup = null,
+    batteryGeneration = 0;
 function connectionProfile() {
     const c = typeof navigator !== 'undefined' ? navigator.connection : null;
     return {
@@ -72,10 +75,12 @@ export async function batteryProfile() {
 }
 export async function initBatteryAdaptation() {
     if (batteryInit) return batteryInit;
+    const generation = batteryGeneration;
     batteryInit = (async () => {
         if (typeof navigator === 'undefined' || !navigator.getBattery) return batteryState;
         try {
             batteryRef = await navigator.getBattery();
+            if (generation !== batteryGeneration) return batteryState;
             const update = () => {
                 batteryState = {
                     supported: true,
@@ -87,12 +92,27 @@ export async function initBatteryAdaptation() {
             update();
             batteryRef.addEventListener?.('chargingchange', update);
             batteryRef.addEventListener?.('levelchange', update);
+            batteryCleanup = () => {
+                batteryRef?.removeEventListener?.('chargingchange', update);
+                batteryRef?.removeEventListener?.('levelchange', update);
+                batteryCleanup = null;
+            };
             return batteryState;
         } catch {
             return batteryState;
         }
     })();
     return batteryInit;
+}
+export function disposeBatteryAdaptation(): void {
+    batteryGeneration++;
+    batteryCleanup?.();
+    batteryRef = null;
+    batteryInit = null;
+    batteryState = {
+        supported: false,
+        low: false
+    };
 }
 export function prefetchBudget() {
     const p = deviceProfile();
@@ -119,8 +139,11 @@ export function prefetchBudget() {
 }
 export function createAdaptiveScheduler(options = {}) {
     let active = 0,
-        queue = [];
+        queue = [],
+        disposed = false;
+    const maxPending = options.maxPending === 0 ? Infinity : Math.max(1, Number(options.maxPending ?? 1000) || 1000);
     const drain = () => {
+        if (disposed) return;
         const budget = prefetchBudget(),
             limit = options.concurrency ?? (budget.enabled ? budget.concurrency : 1);
         while (active < Math.max(1, limit) && queue.length) {
@@ -128,13 +151,21 @@ export function createAdaptiveScheduler(options = {}) {
             active++;
             Promise.resolve(adaptiveSchedule(job.task, job.kind)).then(job.resolve, job.reject).finally(() => {
                 active--;
-                drain();
+                if (!disposed) drain();
             });
         }
     };
-    return {
+    const api = {
         schedule(task, kind = 'normal') {
             return new Promise((resolve, reject) => {
+                if (disposed) {
+                    reject(new Error('Adaptive scheduler has been disposed.'));
+                    return;
+                }
+                if (queue.length >= maxPending) {
+                    reject(new Error('Adaptive scheduler queue limit exceeded.'));
+                    return;
+                }
                 queue.push({
                     task,
                     kind,
@@ -144,6 +175,12 @@ export function createAdaptiveScheduler(options = {}) {
                 drain();
             });
         },
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            const pending = queue.splice(0);
+            for (const job of pending) job.reject(new Error('Adaptive scheduler has been disposed.'));
+        },
         get profile() {
             return deviceProfile();
         },
@@ -151,4 +188,6 @@ export function createAdaptiveScheduler(options = {}) {
             return queue.length;
         }
     };
+    if (getOwner()) onCleanup(api.dispose);
+    return api;
 }

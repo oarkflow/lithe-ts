@@ -1,13 +1,16 @@
 import { onTrace } from '../observability/tracing.ts';
 import { onMutation, inspectReactiveGraph } from '../core/reactive-debug.ts';
-import { inspectOwners } from '../core/owner.ts';
+import { getOwner, onCleanup, inspectOwners } from '../core/owner.ts';
 export function createDevtools(options = {}) {
     const history = [],
         mutations = [];
     const max = options.maxEvents || 1000;
     let cursor = 0,
-        replaying = false;
+        replaying = false,
+        disposed = false;
+    const installedGlobals = new Set<string>();
     const push = e => {
+        if (disposed) return;
         history.push(e);
         if (history.length > max) history.shift();
         options.onEvent?.(e);
@@ -64,6 +67,7 @@ export function createDevtools(options = {}) {
         return `digraph Lithe {\n${g.nodes.map(n => `  n${n.id} [label=${JSON.stringify(n.name || n.kind)}];`).join('\n')}\n${g.edges.map(e => `  n${e.from} -> n${e.to};`).join('\n')}\n}`;
     };
     const installGlobal = (name = '__LITHE_DEVTOOLS__') => {
+        if (disposed) return () => { };
         if (typeof globalThis !== 'undefined') globalThis[name] = {
             history,
             mutations,
@@ -79,8 +83,10 @@ export function createDevtools(options = {}) {
                 return cursor;
             }
         };
+        installedGlobals.add(name);
         return () => {
             if (globalThis[name]?.history === history) delete globalThis[name];
+            installedGlobals.delete(name);
         };
     };
     const debuggerTools = {
@@ -112,6 +118,20 @@ export function createDevtools(options = {}) {
             cursor = 0;
         }
     };
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        stopTrace();
+        stopMutation();
+        for (const name of installedGlobals) {
+            if (globalThis[name]?.history === history) delete globalThis[name];
+        }
+        installedGlobals.clear();
+        history.length = 0;
+        mutations.length = 0;
+        cursor = 0;
+    };
+    if (getOwner()) onCleanup(dispose);
     return {
         history,
         mutations,
@@ -124,9 +144,6 @@ export function createDevtools(options = {}) {
         back: () => step(-1),
         forward: () => step(1),
         installGlobal,
-        dispose() {
-            stopTrace();
-            stopMutation();
-        }
+        dispose
     };
 }

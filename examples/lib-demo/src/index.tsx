@@ -1,5 +1,4 @@
-import { signal, computed } from '@oarkflow/lithe/core';
-import { mount } from '@oarkflow/lithe/dom';
+import { signal, computed, createRoot } from '@oarkflow/lithe';
 
 const count = signal<number>(0, { name: 'count' });
 const doubled = computed(() => count.value * 2);
@@ -18,4 +17,4 @@ function App() {
 	</main>;
 }
 
-mount(document.getElementById('app')!, <App />);
+createRoot(document.getElementById('app')!).render(<App />);

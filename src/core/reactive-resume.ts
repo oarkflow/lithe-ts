@@ -94,9 +94,11 @@ export function serializeComputations() {
 export function resumeComputations(list = []) {
     const disposers = [];
     for (const meta of list || []) {
-        registerResumableComputation(meta);
+        const registered = registerResumableComputation(meta);
+        let active = true;
         let loaded = null;
         const run = async () => {
+            if (!active) return;
             const values = {};
             for (const name of meta.signals || []) {
                 const sig = getNamedSignal(name);
@@ -107,7 +109,9 @@ export function resumeComputations(list = []) {
                 if (typeof fn !== 'function') throw new TypeError(`Resumable computation ${meta.name} export is not callable.`);
                 return fn;
             });
+            if (!active) return;
             const fn = await loaded;
+            if (!active) return;
             return fn(values, {
                 name: meta.name,
                 kind: meta.kind
@@ -122,8 +126,18 @@ export function resumeComputations(list = []) {
                 sync: false,
                 name: `resume:${meta.name}`
             });
-            disposers.push(stop);
-        } else run();
+            disposers.push(() => {
+                active = false;
+                stop();
+                if (computations().get(registered.name) === registered) computations().delete(registered.name);
+            });
+        } else {
+            run();
+            disposers.push(() => {
+                active = false;
+                if (computations().get(registered.name) === registered) computations().delete(registered.name);
+            });
+        }
     }
     return () => disposers.splice(0).forEach(fn => fn());
 }

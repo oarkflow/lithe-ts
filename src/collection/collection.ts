@@ -1,4 +1,5 @@
 import { signal, state, computed, effect, batch } from '../core/reactive.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 export function collection(initial = [], options = {}) {
     const idKey = options.idKey || 'id',
         items = state([...initial]),
@@ -6,6 +7,7 @@ export function collection(initial = [], options = {}) {
         index = new Map(),
         secondary = new Map(),
         incremental = new Set();
+    let disposed = false;
     const idOf = item => item?.[idKey];
     const addSecondary = (field, item) => {
         const maps = secondary.get(field);
@@ -24,6 +26,7 @@ export function collection(initial = [], options = {}) {
         if (set?.size === 0) maps.delete(value);
     };
     const rebuild = () => {
+        if (disposed) return;
         index.clear();
         items.forEach((item, i) => index.set(idOf(item), i));
         for (const [field, map] of secondary) {
@@ -34,6 +37,7 @@ export function collection(initial = [], options = {}) {
         for (const q of incremental) q.rebuild();
     };
     const notifyItem = (oldItem, newItem) => {
+        if (disposed) return;
         for (const field of secondary.keys()) {
             removeSecondary(field, oldItem);
             addSecondary(field, newItem);
@@ -45,7 +49,8 @@ export function collection(initial = [], options = {}) {
         const out = signal([]),
             matches = new Map(),
             watchers = new Map();
-        let rebuilding = false;
+        let rebuilding = false,
+            disposed = false;
         const publish = () => {
             if (rebuilding) return;
             out.value = items.filter(item => matches.get(idOf(item)) === true);
@@ -72,6 +77,7 @@ export function collection(initial = [], options = {}) {
         };
         const q = {
             rebuild() {
+                if (disposed) return;
                 rebuilding = true;
                 const live = new Set();
                 for (const item of items) {
@@ -84,6 +90,7 @@ export function collection(initial = [], options = {}) {
                 publish();
             },
             update(oldItem, newItem) {
+                if (disposed) return;
                 const oldId = idOf(oldItem),
                     newId = idOf(newItem);
                 if (oldId !== newId) detach(oldId);
@@ -91,12 +98,15 @@ export function collection(initial = [], options = {}) {
                 publish();
             },
             dispose() {
+                if (disposed) return;
+                disposed = true;
                 for (const d of watchers.values()) d();
                 watchers.clear();
                 matches.clear();
                 incremental.delete(q);
             }
         };
+        if (getOwner()) onCleanup(q.dispose);
         incremental.add(q);
         q.rebuild();
         return Object.freeze({
@@ -111,14 +121,16 @@ export function collection(initial = [], options = {}) {
         });
     }
     rebuild();
-    const api = {
+    const api: any = {
         items,
         insert(item, at = items.length) {
+            if (disposed) return undefined;
             items.splice(at, 0, item);
             rebuild();
             return item;
         },
         upsert(item) {
+            if (disposed) return undefined;
             const i = index.get(idOf(item));
             if (i == null) return api.insert(item);
             const existing = items[i];
@@ -130,6 +142,7 @@ export function collection(initial = [], options = {}) {
             return existing;
         },
         update(id, patch) {
+            if (disposed) return undefined;
             const i = index.get(id);
             if (i == null) return undefined;
             const item = items[i];
@@ -144,6 +157,7 @@ export function collection(initial = [], options = {}) {
             return item;
         },
         delete(id) {
+            if (disposed) return false;
             const i = index.get(id);
             if (i == null) return false;
             items.splice(i, 1);
@@ -156,20 +170,24 @@ export function collection(initial = [], options = {}) {
             return i == null ? undefined : items[i];
         },
         clear() {
+            if (disposed) return;
             items.splice(0, items.length);
             rebuild();
         },
         replace(next) {
+            if (disposed) return;
             items.splice(0, items.length, ...next);
             rebuild();
         },
         where(predicate, queryOptions = {}) {
+            if (disposed) return computed(() => []);
             return queryOptions.incremental === false ? computed(() => {
                 version.value;
                 return items.filter(predicate);
             }) : createIncrementalQuery(predicate);
         },
         indexBy(field) {
+            if (disposed) return { get: () => [], has: () => false, values: () => new Map() };
             if (!secondary.has(field)) {
                 secondary.set(field, new Map());
                 for (const item of items) addSecondary(field, item);
@@ -191,10 +209,12 @@ export function collection(initial = [], options = {}) {
             };
         },
         whereIndexed(field, value) {
+            if (disposed) return computed(() => []);
             const idx = api.indexBy(field);
             return computed(() => idx.get(typeof value === 'function' ? value() : value));
         },
         incrementalWhere(predicate) {
+            if (disposed) return Object.freeze({ value: [], peek: () => [], subscribe: () => () => false, dispose: () => {}, __litheSignal: true, __litheIncrementalQuery: true });
             return createIncrementalQuery(predicate);
         },
         sort(compare) {
@@ -210,6 +230,7 @@ export function collection(initial = [], options = {}) {
             return items.map(x => x?.__raw || x);
         },
         transaction(fn) {
+            if (disposed) throw new Error('Collection has been disposed.');
             const snapshot = api.toJSON().map(x => ({
                 ...x
             }));
@@ -221,5 +242,16 @@ export function collection(initial = [], options = {}) {
             }
         }
     };
+    api.dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        for (const query of [...incremental]) query.dispose();
+        incremental.clear();
+        index.clear();
+        secondary.clear();
+        items.splice(0, items.length);
+        version.value++;
+    };
+    if (getOwner()) onCleanup(api.dispose);
     return api;
 }

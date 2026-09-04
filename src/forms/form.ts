@@ -1,4 +1,5 @@
 import { state, signal, batch } from '../core/reactive.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 import type { Schema, ValidationIssue } from './schema.ts';
 export type FieldPath = string | Array<string | number>;
 export interface FieldValidationContext<T extends object> {
@@ -49,6 +50,7 @@ export interface FormApi<T extends object> {
         preventDefault?: () => void;
     }): Promise<any>;
     reset(next?: T): unknown;
+    dispose(): void;
     readonly submitting: boolean;
     readonly validating: boolean;
     readonly submitted: boolean;
@@ -119,6 +121,7 @@ export function createForm<T extends Record<string, any> = Record<string, any>>(
         submitError = signal<unknown>(null),
         validating = signal(false),
         controllers = new Map<string, AbortController>();
+    let disposed = false;
     const clearErrors = () => {
         for (const k of Object.keys(errors)) delete errors[k];
     };
@@ -133,6 +136,7 @@ export function createForm<T extends Record<string, any> = Record<string, any>>(
         return r;
     };
     const validateField = async name => {
+        if (disposed) return false;
         const key = pathKey(name),
             validator = options.fieldValidators?.[key] || options.asyncValidateField;
         if (!validator) {
@@ -266,6 +270,14 @@ export function createForm<T extends Record<string, any> = Record<string, any>>(
         submitted.value = false;
         submitError.value = null;
     });
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        for (const controller of controllers.values()) controller.abort('form disposed');
+        controllers.clear();
+        validating.value = false;
+    };
+    if (getOwner()) onCleanup(dispose);
     return {
         values,
         errors,
@@ -278,6 +290,7 @@ export function createForm<T extends Record<string, any> = Record<string, any>>(
         validateField,
         submit,
         reset,
+        dispose,
         get submitting() {
             return submitting.value;
         },

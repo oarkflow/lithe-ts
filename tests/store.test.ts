@@ -84,6 +84,28 @@ test('createStore supports fine-grained selector reactivity', () => {
 	assert.equal(currentTheme, 'light');
 });
 
+test('destroy disposes selector computeds and releases their state subscriptions', () => {
+  const store = createStore({ count: 0 });
+  const selected = store.select(state => state.count) as any;
+  assert.equal(selected.value, 0);
+  assert.ok(selected._dep1, 'selector should subscribe before destroy');
+  store.destroy();
+  assert.equal(selected._dep1, null);
+  store.setState({ count: 1 });
+  assert.equal(selected.value, 0);
+});
+
+test('store subscriptions created in an owner scope are released automatically', () => {
+	const store = createStore({ count: 0 });
+	let calls = 0;
+	const scope = createScope(() => store.subscribe(() => calls++));
+	store.setState({ count: 1 });
+	assert.equal(calls, 1);
+	scope.dispose();
+	store.setState({ count: 2 });
+	assert.equal(calls, 1);
+});
+
 test('defineStore defines a named atomic store', () => {
 	const useAuth = defineStore('auth', (set) => ({
 		token: null as string | null,
@@ -152,6 +174,39 @@ test('createContextStore provides isolated store instances per subtree', () => {
 	});
 });
 
+test('context store provider destroys instances it owns on scope disposal', () => {
+	let destroyed = 0;
+	const [Provider] = createContextStore(() => {
+		const store = createStore({ value: 1 });
+		const destroy = store.destroy;
+		store.destroy = () => { destroyed++; destroy(); };
+		return store;
+	});
+	const scope = createScope(() => Provider({ children: null }));
+	scope.dispose();
+	assert.equal(destroyed, 1);
+});
+
+test('context store provider reuses its owned instance across rerenders', () => {
+	let created = 0;
+	let destroyed = 0;
+	const [Provider] = createContextStore(() => {
+		created++;
+		const store = createStore({ value: 1 });
+		const destroy = store.destroy;
+		store.destroy = () => { destroyed++; destroy(); };
+		return store;
+	});
+
+	const scope = createScope(() => {
+		Provider({ children: null });
+		Provider({ children: null });
+	});
+	assert.equal(created, 1);
+	scope.dispose();
+	assert.equal(destroyed, 1);
+});
+
 test('persist middleware synchronizes state with custom storage', () => {
 	const storageMap = new Map<string, string>();
 	const mockStorage = {
@@ -181,6 +236,24 @@ test('persist middleware synchronizes state with custom storage', () => {
 	useSettings.getState().setVolume(95);
 	assert.equal(useSettings.getState().volume, 95);
 	assert.equal(storageMap.get('settings-store'), JSON.stringify({ volume: 95 }));
+});
+
+test('persist middleware ignores late rehydration after store destruction', async () => {
+	let resolveLoad: (value: string | null) => void = () => { };
+	let rehydrated = 0;
+	const storage = {
+		getItem: () => new Promise<string | null>(resolve => { resolveLoad = resolve; }),
+		setItem: () => { }
+	};
+	const store = createStore(persist(
+		() => ({ value: 1 }),
+		{ name: 'late-store', storage, onRehydrate: () => { rehydrated++; } }
+	));
+	store.destroy();
+	resolveLoad(JSON.stringify({ value: 2 }));
+	await Promise.resolve();
+	assert.equal(rehydrated, 0);
+	assert.equal(store.getState().value, 1);
 });
 
 test('history middleware provides undo, redo and time travel', () => {

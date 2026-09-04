@@ -22,29 +22,41 @@ export function defineApp<T extends AppConvention>(config: T): Readonly<T> {
     });
 }
 export function startApp(config) {
+    const ownsRouter = !config.router && Boolean(config.routes);
     const router = config.router || (config.routes ? createRouter({
         routes: config.routes,
         notFound: config.notFound
     }) : null);
     const network = createNetworkState();
     const cleanups = [network.start()];
-    if (router) cleanups.push(router.start());
+    if (router) {
+        cleanups.push(router.start());
+        if (ownsRouter) cleanups.push(() => router.dispose?.());
+    }
     const root = typeof config.root === 'string' ? document.querySelector(config.root) : config.root || document.getElementById('app');
     const App = config.component || (() => router ? h(router.View, {}) : null);
-    cleanups.push(mount(root, h(App, {
-        router,
-        network
-    }), config.mount));
-    let devtools;
-    if (config.devtools !== false && globalThis.location?.hostname === 'localhost') {
-        devtools = createDevtools();
-        cleanups.push(devtools.installGlobal());
-        cleanups.push(() => devtools.dispose());
+    try {
+        cleanups.push(mount(root, h(App, {
+            router,
+            network
+        }), config.mount));
+        let devtools;
+        if (config.devtools !== false && globalThis.location?.hostname === 'localhost') {
+            devtools = createDevtools();
+            cleanups.push(devtools.installGlobal());
+            cleanups.push(() => devtools.dispose());
+        }
+    } catch (error) {
+        cleanups.reverse().forEach(fn => fn?.());
+        throw error;
     }
+    let disposed = false;
     return {
         router,
         network,
         dispose() {
+            if (disposed) return;
+            disposed = true;
             cleanups.reverse().forEach(fn => fn?.());
         }
     };

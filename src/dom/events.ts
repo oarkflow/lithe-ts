@@ -1,3 +1,5 @@
+import { getOwner, onCleanup } from '../core/owner.ts';
+
 const ROOT_EVENTS = Symbol('lithe.events');
 function eventName(prop) {
     return prop.slice(2).toLowerCase();
@@ -13,7 +15,8 @@ export function setDirectEvent(element, prop, handler, previous) {
 export function installDelegatedEvents(root, eventTypes = ['click', 'input', 'change', 'submit', 'keydown', 'keyup', 'pointerdown', 'pointerup']) {
     if (root[ROOT_EVENTS]) return root[ROOT_EVENTS];
     const disposers = [];
-    for (const type of eventTypes) {
+    let disposed = false;
+    for (const type of new Set(eventTypes)) {
         const listener = event => {
             let node = event.target;
             const key = `__lithe_${type}`;
@@ -39,10 +42,13 @@ export function installDelegatedEvents(root, eventTypes = ['click', 'input', 'ch
         disposers.push(() => root.removeEventListener(type, listener));
     }
     const dispose = () => {
+        if (disposed) return;
+        disposed = true;
         for (const fn of disposers) fn();
         delete root[ROOT_EVENTS];
     };
     root[ROOT_EVENTS] = dispose;
+    if (getOwner()) onCleanup(dispose);
     return dispose;
 }
 export function setDelegatedEvent(element, prop, handler) {

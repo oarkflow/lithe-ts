@@ -1,3 +1,5 @@
+import { getOwner, onCleanup } from '../core/owner.ts';
+
 function traceOffline(type, attributes = {}) {
     try {
         globalThis.__LITHE_CORRELATION_EVENT__?.(type, attributes, globalThis.__LITHE_CORRELATION_ID__ || null);
@@ -83,13 +85,26 @@ export async function registerBackgroundSync(registration, tag = 'lithe-sync') {
     await reg.sync.register(tag);
     return true;
 }
-export function createPersistentMutationQueue(storage, storageKey = 'lithe:mutation-queue') {
+export function createPersistentMutationQueue(storage, storageKey = 'lithe:mutation-queue', options = {}) {
     let queue = [],
-        loaded = false;
+        loaded = false,
+        disposed = false;
+    const maxItems = options.maxItems === 0 ? Infinity : Math.max(1, Number(options.maxItems ?? 1000) || 1000);
+    const trim = () => {
+        if (queue.length > maxItems) queue.splice(0, queue.length - maxItems);
+    };
     const listeners = new Set();
     const ready = (async () => {
         try {
             queue = JSON.parse((await storage.getItem(storageKey)) || '[]');
+            if (!Array.isArray(queue)) queue = [];
+            const before = queue.length;
+            trim();
+            if (queue.length !== before) {
+                try {
+                    await storage.setItem(storageKey, JSON.stringify(queue));
+                } catch { }
+            }
         } catch (e) {
             console.warn('[lithe:offline] Failed to load persistent mutation queue:', e);
             queue = [];
@@ -99,14 +114,22 @@ export function createPersistentMutationQueue(storage, storageKey = 'lithe:mutat
         return queue;
     })();
     const emit = () => {
+        if (disposed) return;
         for (const fn of listeners) try {
             fn([...queue]);
         } catch { }
     };
     const save = () => storage.setItem(storageKey, JSON.stringify(queue));
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        listeners.clear();
+    };
+    if (getOwner()) onCleanup(dispose);
     return {
         ready,
         subscribe(fn) {
+            if (disposed) return () => false;
             listeners.add(fn);
             if (loaded) fn([...queue]);
             return () => listeners.delete(fn);
@@ -119,6 +142,7 @@ export function createPersistentMutationQueue(storage, storageKey = 'lithe:mutat
                 ...operation
             };
             queue.push(item);
+            trim();
             await save();
             emit();
             traceOffline('offline:queue:add', {
@@ -166,6 +190,7 @@ export function createPersistentMutationQueue(storage, storageKey = 'lithe:mutat
             queue = [];
             await save();
             emit();
-        }
+        },
+        dispose
     };
 }

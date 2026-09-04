@@ -1,12 +1,14 @@
 export function createISRCache(options = {}) {
     const entries = new Map();
     const defaultTTL = options.ttl ?? 60_000;
+    const maxEntries = options.maxEntries === 0 ? Infinity : Math.max(1, Number(options.maxEntries ?? 1000) || 1000);
     return {
         async get(key, render, ttl = defaultTTL) {
             const now = Date.now();
             let entry = entries.get(key);
             if (!entry) {
                 const value = await render();
+                while (entries.size >= maxEntries) entries.delete(entries.keys().next().value);
                 entries.set(key, {
                     value,
                     expires: now + ttl,

@@ -1,4 +1,5 @@
 import { inspectReactiveGraph } from '../core/reactive-debug.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 export function mountReactiveGraphInspector(root, options = {}) {
     if (!root?.appendChild) throw new TypeError('mountReactiveGraphInspector requires a DOM root.');
     let disposed = false,
@@ -30,7 +31,7 @@ export function mountReactiveGraphInspector(root, options = {}) {
         timer = setInterval(render, options.interval ?? 500);
         timer.unref?.();
     }
-    return {
+    const api = {
         render,
         dispose() {
             disposed = true;
@@ -38,4 +39,6 @@ export function mountReactiveGraphInspector(root, options = {}) {
             root.replaceChildren();
         }
     };
+    if (getOwner()) onCleanup(() => api.dispose());
+    return api;
 }

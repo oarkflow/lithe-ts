@@ -3,6 +3,7 @@ import { createScope, onCleanup, withOwner } from '../core/owner.ts';
 import { Fragment, Text, Comment, h, isVNode } from './vnode.ts';
 import { isEventProp, setDirectEvent, setDelegatedEvent, installDelegatedEvents } from './events.ts';
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const ROOT_MOUNT = Symbol('lithe.root-mount');
 const BOOLEAN_ATTRS = new Set(['disabled', 'checked', 'selected', 'multiple', 'required', 'autofocus', 'hidden', 'open', 'readonly']);
 const PROPERTY_KEYS = new Set(['value', 'checked', 'selected', 'muted', 'currentTime', 'volume', 'indeterminate']);
 const ATTRIBUTE_NAMES: Record<string, string> = {
@@ -439,6 +440,7 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
 }
 export function mount(root: any, view: any, options: any = {}) {
     if (!root) throw new Error('mount(root, view) requires a root element.');
+    root[ROOT_MOUNT]?.();
     if (options.clear !== false) root.textContent = '';
     const scope = createScope(() => {
         if (options.delegateEvents !== false) {
@@ -447,9 +449,31 @@ export function mount(root: any, view: any, options: any = {}) {
         }
         return __mountChild(root, typeof view === 'function' && !(view as any).__litheDynamic ? h(view, {}) : view, null, options);
     });
-    return () => {
+    let disposed = false;
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
         scope.dispose();
         if (options.clearOnDispose !== false) root.textContent = '';
+        if (root[ROOT_MOUNT] === dispose) delete root[ROOT_MOUNT];
+    };
+    root[ROOT_MOUNT] = dispose;
+    return dispose;
+}
+export function createRoot(root: any, options: any = {}) {
+    let dispose: (() => void) | null = null;
+    return {
+        render(view: any) {
+            dispose?.();
+            dispose = mount(root, view, {
+                ...options,
+                clear: true
+            });
+        },
+        unmount() {
+            dispose?.();
+            dispose = null;
+        }
     };
 }
 export function dynamic(fn: any) {

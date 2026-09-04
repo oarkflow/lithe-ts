@@ -1,5 +1,6 @@
 import { installSignalSnapshot, serializeSignals, getNamedSignal, serializeOwners, restoreOwners, serializeComputations, resumeComputations } from '../core/reactive-resume.ts';
 const installedByRoot = new WeakMap();
+const sessionByRoot = new WeakMap();
 function comments(root) {
     const doc = root.ownerDocument || root;
     if (!doc?.createTreeWalker) return new Map();
@@ -79,6 +80,7 @@ function resumeBindings(root, state, disposers) {
     }
 }
 export function resumeDocument(root = document, options = {}) {
+    sessionByRoot.get(root)?.();
     const disposersEarly = [];
     let state = options.state;
     if (state === undefined && root?.getElementById) {
@@ -137,7 +139,15 @@ export function resumeDocument(root = document, options = {}) {
             if (!installed.size) installedByRoot.delete(root);
         });
     }
-    return () => disposers.splice(0).forEach(fn => fn());
+    let disposed = false;
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        disposers.splice(0).forEach(fn => fn());
+        if (sessionByRoot.get(root) === dispose) sessionByRoot.delete(root);
+    };
+    sessionByRoot.set(root, dispose);
+    return dispose;
 }
 export function serializeResumeState(options = {}) {
     return {

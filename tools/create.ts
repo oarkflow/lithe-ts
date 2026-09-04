@@ -5,7 +5,6 @@ export async function createProject(dir: string): Promise<string> {
 	const root = path.resolve(dir);
 	const frameworkPackage = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'));
 	await fs.mkdir(path.join(root, 'src'), { recursive: true });
-	await fs.mkdir(path.join(root, 'public'), { recursive: true });
 
 	await fs.writeFile(
 		path.join(root, 'package.json'),
@@ -26,13 +25,13 @@ export async function createProject(dir: string): Promise<string> {
 	);
 
 	await fs.writeFile(
-		path.join(root, 'public/index.html'),
-		'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lithe App</title></head><body><div id="app"></div><script type="module" src="/src/main.tsx"></script></body></html>'
+		path.join(root, 'index.html'),
+		'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lithe App</title></head><body><div id="app"></div><script type="module" src="/src/index.tsx"></script></body></html>'
 	);
 
 	await fs.writeFile(
-		path.join(root, 'src/main.tsx'),
-		`import { signal, mount } from '@oarkflow/lithe/runtime';\nconst count=signal<number>(0);\nfunction App(){ return <main><h1>Lithe</h1><button onClick={()=>count.value++}>Count: {count}</button></main>; }\nmount(document.getElementById('app'), <App/>);\n`
+		path.join(root, 'src/index.tsx'),
+		`import { signal, mount } from '@oarkflow/lithe';\nconst count=signal<number>(0);\nfunction App(){ return <main><h1>Lithe</h1><button onClick={()=>count.value++}>Count: {count}</button></main>; }\nmount(document.getElementById('app')!, <App/>);\n`
 	);
 
 	return root;

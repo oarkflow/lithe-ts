@@ -1,6 +1,7 @@
 import { signal, computed, batch } from '../core/reactive.ts';
-import { h, Fragment } from '../dom/vnode.ts';
+import { h } from '../dom/vnode.ts';
 import { dynamic } from '../dom/dom.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 export type RouteComponent = (props: any) => any;
 export interface RouterContext {
     params: Record<string, string>;
@@ -233,6 +234,32 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
     const prefetchCache = new Map();
     const pageCache = new Map();
     const cacheLimit = memoryLimit(options);
+    let stopListening: (() => void) | null = null;
+    let disposed = false;
+    const ensureActive = () => {
+        if (disposed) throw new Error('Router has been disposed.');
+    };
+    function retainScrollPosition(href: string, position: { x: number; y: number }) {
+        scrollPositions.delete(href);
+        scrollPositions.set(href, position);
+        while (scrollPositions.size > cacheLimit) {
+            const oldest = scrollPositions.keys().next().value;
+            if (oldest === undefined) break;
+            scrollPositions.delete(oldest);
+        }
+    }
+    function retainPrefetch(href: string, promise: Promise<unknown>) {
+        // Prefetch promises retain their resolved route data and module graph.
+        // Keep the same bounded footprint as the page cache instead of growing
+        // for every link a user hovers or scrolls past.
+        prefetchCache.delete(href);
+        prefetchCache.set(href, promise);
+        while (prefetchCache.size > cacheLimit) {
+            const oldest = prefetchCache.keys().next().value;
+            if (oldest === undefined) break;
+            prefetchCache.delete(oldest);
+        }
+    }
     function resolve(urlLike) {
         const url = urlLike instanceof URL ? urlLike : new URL(urlLike, currentURL.value);
         const candidates = [];
@@ -276,6 +303,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
     }
     const matched = computed(() => resolve(currentURL.value));
     async function loadResolved(target, traceId = null) {
+        ensureActive();
         const href = target.url.href;
         const context = {
             params: target.params,
@@ -315,6 +343,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
             return target.chain.length ? values[target.chain.length - 1] : undefined;
         };
         const data = await withCorrelation(traceId, () => run(0));
+        ensureActive();
         pageCache.set(href, {
             data,
             byRoute: result,
@@ -334,8 +363,13 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         }
     }
     async function prefetch(to: RouteTo): Promise<unknown> {
+        ensureActive();
         const next = new URL(typeof to === 'string' ? to : to.to, currentURL.value);
-        if (prefetchCache.has(next.href)) return prefetchCache.get(next.href);
+        const cached = prefetchCache.get(next.href);
+        if (cached) {
+            retainPrefetch(next.href, cached);
+            return cached;
+        }
         const target = resolve(next);
         const promise = (async () => {
             const traceId = newCorrelationId();
@@ -353,7 +387,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
             }
             return loadResolved(target, traceId);
         })();
-        prefetchCache.set(next.href, promise);
+        retainPrefetch(next.href, promise);
         try {
             return await promise;
         } catch (error) {
@@ -362,6 +396,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         }
     }
     async function navigate(to: RouteTo, navOptions: NavigateOptions = {}): Promise<unknown> {
+        ensureActive();
         const next = new URL(typeof to === 'string' ? to : to.to, currentURL.value);
         const target = resolve(next),
             traceId = navOptions.traceId || newCorrelationId();
@@ -369,7 +404,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
             from: currentURL.value.href,
             to: next.href
         }, traceId);
-        if (typeof window !== 'undefined') scrollPositions.set(currentURL.value.href, {
+        if (typeof window !== 'undefined') retainScrollPosition(currentURL.value.href, {
             x: scrollX,
             y: scrollY
         });
@@ -382,6 +417,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         };
         try {
             const data = prefetchCache.has(next.href) ? await prefetchCache.get(next.href) : await Promise.all([preloadResolved(target, traceId), loadResolved(target, traceId)]).then(([, value]) => value);
+            ensureActive();
             const commit = () => {
                 if (typeof history !== 'undefined') {
                     const fn = navOptions.replace ? history.replaceState : history.pushState;
@@ -423,7 +459,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         }
     }
     function start(): () => void {
-        if (typeof window === 'undefined') return () => { };
+        if (disposed || typeof window === 'undefined' || stopListening) return stopListening || (() => { });
         const pop = () => {
             currentURL.value = new URL(location.href);
         };
@@ -438,10 +474,13 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         };
         addEventListener('popstate', pop);
         document.addEventListener('click', click);
-        return () => {
+        stopListening = () => {
             removeEventListener('popstate', pop);
             document.removeEventListener('click', click);
+            stopListening = null;
         };
+        if (getOwner()) onCleanup(stopListening);
+        return stopListening;
     }
     function compose(target, outletName = 'default') {
         if (!target.route) return options.fallback || `Not found: ${target.url.pathname}`;
@@ -449,17 +488,23 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         for (let i = target.chain.length - 1; i >= 0; i--) {
             const route = target.chain[i];
             const Component = outletName === 'default' ? route.component : route.outlets?.[outletName];
-            if (!Component) continue;
             const cached = pageCache.get(target.url.href);
             const data = cached?.byRoute?.[i] ?? (i === target.chain.length - 1 ? navigation.value.data : undefined);
-            child = h(Component, {
+            const props = {
                 params: target.params,
                 query: target.query,
                 search: target.search,
                 router: api,
                 data,
                 outlet: child
-            }, ...(child ? [child] : []));
+            };
+            if (Component) child = h(Component, props, ...(child ? [child] : []));
+            // Layouts wrap the default outlet only. Named parallel outlets remain
+            // independently composable and are not accidentally nested in the
+            // primary page layout.
+            if (outletName === 'default' && route.layout) {
+                child = h(route.layout, { ...props, outlet: child }, ...(child ? [child] : []));
+            }
         }
         return child;
     }
@@ -478,6 +523,16 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         navigate,
         prefetch,
         start,
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            stopListening?.();
+            for (const entry of pageCache.values()) entry.controller?.abort('router disposed');
+            pageCache.clear();
+            prefetchCache.clear();
+            scrollPositions.clear();
+            (matched as any).dispose?.();
+        },
         View,
         Outlet,
         invalidate(to) {

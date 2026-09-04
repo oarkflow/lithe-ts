@@ -15,6 +15,10 @@ function keyFor(item, index, key) {
     if (item && typeof item === 'object') return item.id ?? item.key ?? item;
     return item;
 }
+const NEGATIVE_ZERO = Symbol('lithe.negative-zero');
+function bucketKey(key) {
+    return typeof key === 'number' && Object.is(key, -0) ? NEGATIVE_ZERO : key;
+}
 function renderScope(mountAny, view, options) {
     const fragment = document.createDocumentFragment(),
         scope = createScope(() => mountAny(fragment, view, null, options));
@@ -68,16 +72,22 @@ For.__litheMount = ({
             removeRow(fallback);
             fallback = null;
         }
-        const seen = [],
+        const buckets = new Map(),
+            occurrences = new Map(),
             next = [];
+        for (const row of rows) {
+            const id = bucketKey(row.base);
+            let bucket = buckets.get(id);
+            if (!bucket) buckets.set(id, bucket = []);
+            bucket.push(row);
+        }
         for (let i = 0; i < items.length; i++) {
             const base = keyFor(items[i], i, props.key);
-            let occ = 0;
-            for (const x of seen) if (Object.is(x, base)) occ++;
-            seen.push(base);
-            let row = rows.find(r => Object.is(r.base, base) && r.occ === occ);
+            const bucketId = bucketKey(base),
+                occ = occurrences.get(bucketId) || 0;
+            occurrences.set(bucketId, occ + 1);
+            let row = buckets.get(bucketId)?.[occ];
             if (row && row.item !== items[i]) {
-                removeRow(row);
                 row = null;
             }
             if (!row) {
@@ -94,7 +104,8 @@ For.__litheMount = ({
             } else row.index.value = i;
             next.push(row);
         }
-        for (const row of rows) if (!next.includes(row)) removeRow(row);
+        const retained = new Set(next);
+        for (const row of rows) if (!retained.has(row)) removeRow(row);
         rows = next;
         for (const row of rows) for (const node of row.nodes) parent.insertBefore(node, end);
     }, {
@@ -230,7 +241,9 @@ Island.__litheMount = ({
     const placeholder = document.createComment(`lithe:island:${props.when || props.policy || 'load'}`);
     parent.insertBefore(placeholder, before);
     let scope = null,
-        disposed = false;
+        disposed = false,
+        marker = null,
+        cancelActivation = () => { };
     const activate = () => {
         if (disposed || scope) return;
         const fragment = document.createDocumentFragment();
@@ -239,8 +252,16 @@ Island.__litheMount = ({
         placeholder.remove();
     };
     const policy = props.when || props.policy || 'load';
-    if (policy === 'load') queueMicrotask(activate); else if (policy === 'idle') (globalThis.requestIdleCallback || (f => setTimeout(f, 1)))(activate); else if (policy === 'visible' && typeof IntersectionObserver !== 'undefined') {
-        const marker = document.createElement('span');
+    if (policy === 'load') queueMicrotask(activate); else if (policy === 'idle') {
+        if (typeof globalThis.requestIdleCallback === 'function') {
+            const id = globalThis.requestIdleCallback(activate);
+            cancelActivation = () => globalThis.cancelIdleCallback?.(id);
+        } else {
+            const id = setTimeout(activate, 1);
+            cancelActivation = () => clearTimeout(id);
+        }
+    } else if (policy === 'visible' && typeof IntersectionObserver !== 'undefined') {
+        marker = document.createElement('span');
         marker.hidden = true;
         parent.insertBefore(marker, placeholder);
         const io = new IntersectionObserver(es => {
@@ -266,6 +287,8 @@ Island.__litheMount = ({
     } else activate();
     onCleanup(() => {
         disposed = true;
+        cancelActivation();
+        marker?.remove();
         scope?.dispose();
         placeholder.remove();
     });

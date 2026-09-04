@@ -1,5 +1,5 @@
 import { state, computed, effect, batch, untrack, type ReadonlySignal } from './reactive.ts';
-import { createContext, useContext, getOwner, createScope } from './owner.ts';
+import { createContext, useContext, getOwner, createScope, onCleanup } from './owner.ts';
 export type SetStateAction<T> = Partial<T> | ((prev: T) => Partial<T> | void) | ((draft: T) => void);
 export type StateCreator<T, Actions = {}> = (set: (action: SetStateAction<T>, actionName?: string) => void, get: () => T, store: StoreApi<T>) => T & Actions;
 export type Listener<T> = (state: T, prevState?: T) => void;
@@ -14,6 +14,7 @@ export interface StoreApi<T> {
     state: T;
     reset: () => void;
     destroy: () => void;
+    onDestroy?: (fn: () => void) => () => void;
 }
 export interface StoreHook<T> extends StoreApi<T> {
     <U = T>(selector?: (state: T) => U, equalityFn?: (a: U, b: U) => boolean): U;
@@ -183,10 +184,13 @@ export function produce<T>(baseState: T, recipe: (draft: T) => T | void): T {
  */
 export function createStore<T, Actions extends object = {}>(creatorOrInitial: StateCreator<T, Actions> | (T & Actions) | T): StoreHook<T & Actions> {
     let initialData: any = {};
-    const listeners = new Set<Listener<T & Actions>>();
+	const listeners = new Set<Listener<T & Actions>>();
+	const selectors = new Set<any>();
+    const destroyHooks = new Set<() => void>();
     let reactiveState: any = null;
     let isScalar = false;
     let observed = false;
+    let destroyed = false;
     const writeTarget = (): any => {
         if (!reactiveState || observed || listeners.size > 0) return reactiveState || initialData;
         return initialData;
@@ -304,21 +308,43 @@ export function createStore<T, Actions extends object = {}>(creatorOrInitial: St
         const curr = reactiveState || initialData;
         return isScalar ? curr.value : curr;
     };
+    const onDestroy = (fn: () => void): (() => void) => {
+        if (destroyed) {
+            fn();
+            return () => { };
+        }
+        destroyHooks.add(fn);
+        let active = true;
+        return () => {
+            if (!active) return;
+            active = false;
+            destroyHooks.delete(fn);
+        };
+    };
+    const subscribeListener = (listener: Listener<T & Actions>): (() => void) => {
+        observed = true;
+        listeners.add(listener);
+        let active = true;
+        const dispose = () => {
+            if (!active) return;
+            active = false;
+            listeners.delete(listener);
+        };
+        if (getOwner()) onCleanup(dispose);
+        return dispose;
+    };
     const dummyStore: StoreApi<T & Actions> = {
         getState,
         setState: rawSetState,
         patch,
         setPath,
         mutate,
-        subscribe: (listener: Listener<T & Actions>) => {
-            observed = true;
-            listeners.add(listener);
-            return () => listeners.delete(listener);
-        },
+        subscribe: subscribeListener,
         select: ((selector: any, equalityFn?: any) => select(selector, equalityFn)) as any,
         state: null as any,
         reset: null as any,
-        destroy: null as any
+        destroy: null as any,
+        onDestroy
     };
     if (typeof creatorOrInitial === 'function') {
         initialData = (creatorOrInitial as StateCreator<T, Actions>)(rawSetState, getState, dummyStore);
@@ -340,18 +366,21 @@ export function createStore<T, Actions extends object = {}>(creatorOrInitial: St
     reactiveState = state<any>(initialData);
     const select = <U,>(selector: (state: T & Actions) => U, equalityFn?: (a: U, b: U) => boolean): ReadonlySignal<U> => {
         observed = true;
-        return computed(() => {
+        const selected = computed(() => {
             const source = isScalar ? reactiveState.value : reactiveState;
             return selector(source);
         }, {
             equals: equalityFn ? (a, b) => equalityFn(a as U, b as U) : undefined
         });
+        selectors.add(selected);
+        const owner = getOwner();
+        if (owner) onCleanup(() => {
+            selectors.delete(selected);
+            (selected as any).dispose?.();
+        });
+        return selected;
     };
-    const subscribe = (listener: Listener<T & Actions>): () => void => {
-        observed = true;
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-    };
+    const subscribe = subscribeListener;
     const reset = (): void => {
         batch(() => {
             if (isScalar) {
@@ -364,7 +393,19 @@ export function createStore<T, Actions extends object = {}>(creatorOrInitial: St
         });
     };
     const destroy = (): void => {
+        if (destroyed) return;
+        destroyed = true;
+        for (const hook of [...destroyHooks]) {
+            try {
+                hook();
+            } catch (error) {
+                queueMicrotask(() => { throw error; });
+            }
+        }
+        destroyHooks.clear();
         listeners.clear();
+        for (const selected of selectors) selected.dispose?.();
+        selectors.clear();
     };
     const storeApi: StoreApi<T & Actions> = {
         getState,
@@ -376,7 +417,8 @@ export function createStore<T, Actions extends object = {}>(creatorOrInitial: St
         select,
         state: reactiveState,
         reset,
-        destroy
+        destroy,
+        onDestroy
     };
 
     // Hook callable representation: `useStore(selector)` or `useStore()`
@@ -435,16 +477,28 @@ export function createContextStore<T extends object, P = Partial<T>>(factory: (p
     const Context = createContext<StoreHook<T> | null>(null, {
         name: options.name || 'StoreContext'
     });
+    const ownedByOwner = new WeakMap<object, StoreHook<T>>();
     const Provider = (props: {
         value?: StoreHook<T>;
         initialProps?: P;
         children?: any;
     }) => {
+        const owner = getOwner();
         let instance = props.value;
         if (!instance) {
-            instance = factory(props.initialProps || {} as P);
+            instance = owner ? ownedByOwner.get(owner) : undefined;
+            if (!instance) {
+                instance = factory(props.initialProps || {} as P);
+                if (owner) {
+                    ownedByOwner.set(owner, instance);
+                    const owned = instance;
+                    onCleanup(() => {
+                        ownedByOwner.delete(owner);
+                        owned.destroy?.();
+                    });
+                }
+            }
         }
-        const owner = getOwner();
         if (owner) {
             owner.contexts.set(Context.key, instance);
         }
@@ -480,11 +534,16 @@ export function createContextStore<T extends object, P = Partial<T>>(factory: (p
 export function persist<T extends object, Actions extends object = {}>(creator: StateCreator<T, Actions>, options: PersistOptions<T>): StateCreator<T, Actions> {
     return (set, get, store) => {
         const storage = options.storage || (typeof localStorage !== 'undefined' ? localStorage : null);
-        const initial = creator(set, get, store);
+    const initial = creator(set, get, store);
         if (storage) {
+            let disposed = false;
+            store.onDestroy?.(() => {
+                disposed = true;
+            });
             try {
                 const item = storage.getItem(options.name);
                 const handleLoaded = (raw: string | null) => {
+                    if (disposed) return;
                     if (raw) {
                         try {
                             const parsed = JSON.parse(raw);
@@ -506,7 +565,7 @@ export function persist<T extends object, Actions extends object = {}>(creator: 
             }
 
             // Watch for store changes and save
-            store.subscribe(state => {
+            const unsubscribe = store.subscribe(state => {
                 try {
                     const dataToSave = options.partialize ? options.partialize(state as any) : state;
                     storage.setItem(options.name, JSON.stringify(dataToSave));
@@ -514,6 +573,7 @@ export function persist<T extends object, Actions extends object = {}>(creator: 
                     console.error('[lithe:persist] Failed to persist state:', e);
                 }
             });
+            store.onDestroy?.(unsubscribe);
         }
         return initial;
     };
@@ -535,10 +595,15 @@ export function history<T extends object, Actions extends object = {}>(creator: 
         const future: any[] = [];
         let isTimeTraveling = false;
         const base = creator(set, get, store);
-        store.subscribe((state, prev) => {
+        const unsubscribe = store.subscribe((state, prev) => {
             if (isTimeTraveling || !prev) return;
             past.push(clone(prev));
             if (past.length > limit) past.shift();
+            future.length = 0;
+        });
+        store.onDestroy?.(() => {
+            unsubscribe();
+            past.length = 0;
             future.length = 0;
         });
         const historyActions = {
@@ -592,7 +657,7 @@ export function devtools<T extends object, Actions extends object = {}>(creator:
                 name
             });
             devtoolsConnection.init(get());
-            devtoolsConnection.subscribe((message: any) => {
+            const unsubscribe = devtoolsConnection.subscribe((message: any) => {
                 if (message.type === 'DISPATCH' && message.state) {
                     try {
                         set(JSON.parse(message.state), 'devtools/timeTravel');
@@ -600,6 +665,12 @@ export function devtools<T extends object, Actions extends object = {}>(creator:
                         console.warn('[lithe:store] Failed to apply devtools time travel:', e);
                     }
                 }
+            });
+            store.onDestroy?.(() => {
+                unsubscribe?.();
+                devtoolsConnection.unsubscribe?.();
+                devtoolsConnection.close?.();
+                devtoolsConnection = null;
             });
         }
         const wrappedSet = (action: SetStateAction<T>, actionName: string = 'setState') => {

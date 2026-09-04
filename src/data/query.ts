@@ -1,4 +1,5 @@
 import { signal, batch } from '../core/reactive.ts';
+import { getOwner, onCleanup } from '../core/owner.ts';
 import { currentCorrelation, withCorrelation, correlationEvent } from '../observability/carrier.ts';
 import type { Signal } from '../core/types.ts';
 export type QueryKey = unknown | (() => unknown);
@@ -60,7 +61,6 @@ export interface QueryClientOptions {
     persistence?: QueryPersistence | null;
     autoStart?: boolean;
 }
-const globalCache = new Map<string, QueryEntry<any>>();
 let defaultFetcher = (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init).then(r => {
     if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
     const type = r.headers.get('content-type') || '';
@@ -123,8 +123,12 @@ export class QueryClient {
     persistence: QueryPersistence | null;
     listeners: Set<(event: any) => void>;
     _started: boolean;
+    stopListening: (() => void) | null;
     constructor(options: QueryClientOptions = {}) {
-        this.cache = options.cache || globalCache;
+        // Clients are isolated by default. The exported `queryClient` below
+        // remains the shared application singleton; independently created
+        // clients must not retain or expose one another's query data.
+        this.cache = options.cache || new Map<string, QueryEntry<any>>();
         this.defaults = {
             stale: parseDuration(options.stale ?? '30s'),
             gc: parseDuration(options.gc ?? '5m'),
@@ -135,6 +139,7 @@ export class QueryClient {
         this.persistence = options.persistence || null;
         this.listeners = new Set();
         this._started = false;
+        this.stopListening = null;
         if (this.persistence) this.restore().catch(e => console.warn('[lithe:data] Failed to restore query cache:', e));
         if (options.autoStart !== false) this.start();
     }
@@ -146,6 +151,18 @@ export class QueryClient {
             this.cache.set(hash, entry);
         }
         return entry;
+    }
+    private scheduleGC(entry: QueryEntry<any>, fallback?: number | string): void {
+        if (entry.subscribers > 0) return;
+        const gc = parseDuration(entry.options?.gc ?? fallback ?? this.defaults.gc);
+        if (gc <= 0) return;
+        clearTimeout(entry.gcTimer);
+        entry.gcTimer = safeTimer(() => {
+            if (entry.subscribers === 0 && this.cache.get(entry.key) === entry) {
+                entry.controller?.abort('gc');
+                this.cache.delete(entry.key);
+            }
+        }, gc);
     }
     emit(event: unknown): void {
         for (const fn of this.listeners) try {
@@ -164,7 +181,10 @@ export class QueryClient {
         entry.tags = new Set(options.tags || []);
         clearTimeout(entry.gcTimer);
         entry.gcTimer = null;
-        if (entry.data.peek() !== undefined && Date.now() - entry.updatedAt < stale && !options.force) return entry.data.peek();
+        if (entry.data.peek() !== undefined && Date.now() - entry.updatedAt < stale && !options.force) {
+            this.scheduleGC(entry, options.gc);
+            return entry.data.peek();
+        }
         if (entry.promise && !options.force) return entry.promise;
         if (entry.controller) entry.controller.abort('superseded');
         const controller = new AbortController(),
@@ -225,9 +245,14 @@ export class QueryClient {
                 }
             }
         })().finally(() => {
-            if (entry.controller === controller) entry.controller = null;
-            entry.promise = null;
-            entry.loading.value = false;
+            // A forced refetch may have replaced this request. An older
+            // request must not clear the newer request's state in finally().
+            if (entry.controller === controller) {
+                entry.controller = null;
+                entry.promise = null;
+                entry.loading.value = false;
+                this.scheduleGC(entry, options.gc);
+            }
         });
         return entry.promise;
     }
@@ -241,10 +266,11 @@ export class QueryClient {
         entry.updatedAt = Date.now();
         if (tags) entry.tags = new Set(tags);
         this.persist().catch(e => console.warn('[lithe:data] Failed to persist after setQueryData:', e));
+        this.scheduleGC(entry);
         return entry.data.peek();
     }
     getQueryData<T = unknown>(key: QueryKey): T | undefined {
-        return this.getEntry(resolveKey(key)).data.peek();
+        return this.cache.get(resolveKey(key))?.data.peek();
     }
     invalidate(prefix: QueryKey): void {
         const hash = resolveKey(prefix);
@@ -296,6 +322,11 @@ export class QueryClient {
         this.cache.clear();
         this.persist().catch(e => console.warn('[lithe:data] Failed to persist after clear:', e));
     }
+    destroy(): void {
+        this.stopListening?.();
+        this.clear();
+        this.listeners.clear();
+    }
     dehydrate(): Array<{
         key: string;
         data: unknown;
@@ -342,27 +373,26 @@ export class QueryClient {
         };
         addEventListener('visibilitychange', focus);
         addEventListener('online', online);
-        return () => {
+        this.stopListening = () => {
             removeEventListener('visibilitychange', focus);
             removeEventListener('online', online);
             this._started = false;
+            this.stopListening = null;
         };
+        return this.stopListening;
     }
     retain(entry: QueryEntry<any>, options: {
         gc?: number | string;
     } = {}): () => void {
         entry.subscribers++;
         clearTimeout(entry.gcTimer);
+        let released = false;
         return () => {
+            if (released) return;
+            released = true;
             entry.subscribers = Math.max(0, entry.subscribers - 1);
             if (entry.subscribers === 0) {
-                const gc = parseDuration(options.gc ?? this.defaults.gc);
-                if (gc > 0) entry.gcTimer = safeTimer(() => {
-                    if (entry.subscribers === 0) {
-                        entry.controller?.abort('gc');
-                        this.cache.delete(entry.key);
-                    }
-                }, gc);
+                this.scheduleGC(entry, options.gc);
             }
         };
     }
@@ -391,6 +421,7 @@ export function query<T = unknown>(options: QueryOptions<T>): QueryResult<T> {
         });
     };
     if (options.enabled !== false) refresh(false).catch(e => console.warn('[lithe:data] Failed to fetch query:', e));
+    if (getOwner()) onCleanup(() => release());
     return {
         get data() {
             return entry.data.value;
@@ -432,9 +463,11 @@ export function infiniteQuery<T = unknown, P = unknown>(options: any) {
         loading = signal(false),
         error = signal(null),
         hasNext = signal(true);
-    let activeController: AbortController | null = null;
+    let activeController: AbortController | null = null,
+        disposed = false;
     const baseKey = () => typeof options.key === 'function' ? options.key() : options.key;
     async function fetchPage(pageParam, replace = false) {
+        if (disposed) throw new Error('infiniteQuery has been disposed');
         if (activeController) activeController.abort('superseded');
         const controller = new AbortController();
         activeController = controller;
@@ -447,7 +480,7 @@ export function infiniteQuery<T = unknown, P = unknown>(options: any) {
                 signal: controller.signal,
                 pageIndex: index
             });
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted || disposed) return;
             batch(() => {
                 pages.value = replace ? [data] : [...pages.peek(), data];
                 pageParams.value = replace ? [pageParam] : [...pageParams.peek(), pageParam];
@@ -465,7 +498,23 @@ export function infiniteQuery<T = unknown, P = unknown>(options: any) {
         }
     }
     const initial = options.initialPageParam;
-    if (options.enabled !== false) fetchPage(initial, true).catch(e => console.warn('[lithe:data] Failed to fetch initial page:', e));
+    if (options.enabled !== false) fetchPage(initial, true).catch(e => {
+        if (!disposed) console.warn('[lithe:data] Failed to fetch initial page:', e);
+    });
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        activeController?.abort('infinite query disposed');
+        activeController = null;
+        batch(() => {
+            pages.value = [];
+            pageParams.value = [];
+            loading.value = false;
+            error.value = null;
+            hasNext.value = false;
+        });
+    };
+    if (getOwner()) onCleanup(dispose);
     return {
         get pages() {
             return pages.value;
@@ -492,7 +541,8 @@ export function infiniteQuery<T = unknown, P = unknown>(options: any) {
             return fetchPage(next, false);
         },
         refresh: () => fetchPage(initial, true),
-        key: baseKey
+        key: baseKey,
+        dispose
     };
 }
 export const cursorQuery = infiniteQuery;
