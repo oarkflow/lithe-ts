@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3 - 2026-09-04
+
+- added the lightweight `@oarkflow/lithe/signals` entry point
+- expanded reactive, router, store, query and runtime behavior with regression coverage
+- updated project structure, examples and package exports for the current TypeScript-first layout
+
 ## 1.1.0 — 2026-08-23
 
 TypeScript-first source release.
