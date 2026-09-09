@@ -27,6 +27,13 @@ test('compiled native templates preserve dynamic JSX child functions', () => {
 	assert.doesNotMatch(out, /\[\(\(\) => \(\(\) =>/);
 });
 
+test('compiler folds a nested native subtree with dynamic attributes into one template', () => {
+	const out = transformJSX(`<tr class={() => selected.value ? 'on' : ''}><td>{row.id}</td><td><a>{row.label}</a></td></tr>`);
+	assert.match(out, /^compiledTemplate\(/);
+	assert.match(out, /data-lithe-a0/);
+	assert.doesNotMatch(out, /compiledElement/);
+});
+
 test('captured event extraction ignores TypeScript as-assertion identifiers', () => {
 	const out = compileModule(`<input type="checkbox" onChange={(e: Event) => onToggle(todo.id, (e.currentTarget as HTMLInputElement).checked)} />`, { filename: 'TodoList.tsx', typescript: true });
 	assert.match(out.code, /capturedEventSymbol/);

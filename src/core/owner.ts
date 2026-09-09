@@ -1,6 +1,8 @@
 export interface OwnerOptions {
     name?: string | null;
     resume?: unknown;
+    /** Internal: the caller owns disposal, so do not link into the parent. */
+    detached?: boolean;
 }
 export interface Owner {
     id: number;
@@ -61,7 +63,7 @@ export function createScope<T>(fn: (dispose: () => void) => T, options: OwnerOpt
 } {
     const parent = currentOwner,
         owner = createOwner(parent, options);
-    if (parent) (parent.children ??= new Set()).add(owner);
+    if (parent && !options.detached) (parent.children ??= new Set()).add(owner);
     const dispose = () => disposeOwner(owner);
     try {
         return {

@@ -82,6 +82,26 @@ test('hydrate() claims <For> rows and keeps keyed row identity on a later update
 	assert.equal(liB, liBAfter, 'the claimed row for item "b" must be reused, not recreated, on a keyed update');
 });
 
+test('hydrate() claims compiled-template attribute bindings', async t => {
+	const window = await withDOM(t);
+	if (!window) return;
+	const [{ renderToString }, { hydrate, getHydrationReport }, { compiledTemplate }, { signal }] = await Promise.all([
+		import('../src/server/ssr.ts'),
+		import('../src/dom/hydrate.ts'),
+		import('../src/dom/dom.ts'),
+		import('../src/core/reactive.ts')
+	]);
+	const active = signal(false);
+	const view = compiledTemplate('<section><div data-lithe-a0="">x</div></section>', [], [['class', () => active.value ? 'active' : '']]);
+	const root = document.createElement('div');
+	root.innerHTML = await renderToString(view, { document: false });
+	document.body.appendChild(root);
+	hydrate(root, view);
+	assert.equal(getHydrationReport().status, 'hydrated');
+	active.value = true;
+	assert.equal(root.querySelector('div')!.className, 'active');
+});
+
 test('hydrate() relocates <Portal> content to its target instead of leaving it in place', async t => {
 	const window = await withDOM(t);
 	if (!window) return;

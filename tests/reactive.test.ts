@@ -145,6 +145,21 @@ test('multiple sync observers of one state property all update across repeated w
   stopChecked();
 });
 
+test('high-fanout dependencies update and dispose every subscriber', () => {
+	const value = signal(0);
+	const runs = Array.from({ length: 32 }, () => 0);
+	const disposers = runs.map((_, index) => effect(() => {
+		value.value;
+		runs[index]++;
+	}, { sync: true }));
+	value.value = 1;
+	assert.deepEqual(runs, Array(32).fill(2));
+	for (let i = 0; i < disposers.length; i += 2) disposers[i]();
+	value.value = 2;
+	assert.deepEqual(runs, Array.from({ length: 32 }, (_, i) => i % 2 ? 3 : 2));
+	for (const dispose of disposers) dispose();
+});
+
 test('signal and computed equality options control invalidation', () => {
   const point=signal({x:1},{equals:(a:any,b:any)=>a.x===b.x});
   let runs=0; const stop=effect(()=>{runs++; point.value;},{sync:true});

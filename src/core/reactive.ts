@@ -1,13 +1,21 @@
 import { schedule } from './scheduler.ts';
 import { getOwner, onCleanup, withOwner } from './owner.ts';
+import { ARRAY_MUTATION, ARRAY_TRACK } from './internal.ts';
 import type { Priority, Signal, ReadonlySignal, SignalOptions, ObserverOptions } from './types.ts';
 let activeObserver: any = null;
 let tracking = true;
 let batchDepth = 0;
 let reactiveSeq = 0;
-const pendingObservers = new Set<any>();
+let pendingObservers: any[] = [];
 const proxyCache = new WeakMap<object, object>();
 const depsByTarget = new WeakMap<object, Map<PropertyKey, Dependency>>();
+const arrayMutationHints = new WeakMap<object, {
+    method: string;
+    args: unknown[];
+    previousLength: number;
+    indices?: number[];
+}>();
+const activeArrayMutations = new WeakSet<object>();
 const STATE_CLEAN = 0;
 const STATE_DIRTY = 1;
 const ARRAY_MUTATORS = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin']);
@@ -37,6 +45,11 @@ export class Dependency {
             } else if (this._sub1) {
                 this._subscribers.add(this._sub1);
             }
+            // Once callers request the Set view, make it the canonical
+            // storage. Keeping both representations in sync makes removal
+            // linear for no benefit.
+            this._sub1 = null;
+            this._subs = null;
         }
         return this._subscribers;
     }
@@ -50,24 +63,36 @@ export class Dependency {
         }
     }
     hasSubscriber(sub: any): boolean {
+        if (this._subscribers) return this._subscribers.has(sub);
         if (this._sub1 === sub) return true;
         if (this._subs && this._subs.indexOf(sub) !== -1) return true;
-        return Boolean(this._subscribers?.has(sub));
+        return false;
     }
     addSubscriber(sub: any) {
         if (this.hasSubscriber(sub)) return;
-        if (this._subscribers) this._subscribers.add(sub);
+        if (this._subscribers) {
+            this._subscribers.add(sub);
+            return;
+        }
         if (!this._sub1) {
             this._sub1 = sub;
         } else if (!this._subs) {
             this._subs = [this._sub1, sub];
+        } else if (this._subs.length >= 8) {
+            this._subscribers = new Set(this._subs);
+            this._subscribers.add(sub);
+            this._sub1 = null;
+            this._subs = null;
         } else {
             this._subs.push(sub);
         }
     }
     removeSubscriber(sub: any) {
+        if (this._subscribers) {
+            this._subscribers.delete(sub);
+            return;
+        }
         if (!this.hasSubscriber(sub)) return;
-        if (this._subscribers) this._subscribers.delete(sub);
         if (this._sub1 === sub) {
             if (this._subs && this._subs.length > 1) {
                 const idx = this._subs.indexOf(sub);
@@ -88,7 +113,10 @@ export class Dependency {
     }
     notify() {
         this.version++;
-        if (this._subs) {
+        if (this._subscribers) {
+            const arr = Array.from(this._subscribers);
+            for (let i = 0; i < arr.length; i++) arr[i].markDirty(this);
+        } else if (this._subs) {
             const arr = this._subs.slice();
             const len = arr.length;
             for (let i = 0; i < len; i++) {
@@ -102,7 +130,17 @@ export class Dependency {
 function queueObserver(observer: any) {
     if (observer.disposed) return;
     if (batchDepth) {
-        pendingObservers.add(observer);
+        if (!observer.pending) {
+            observer.pending = true;
+            pendingObservers.push(observer);
+        }
+        return;
+    }
+    // Synchronous effects are already called after the dependency graph's
+    // mark phase. They do not need the queued/cancel bookkeeping used by
+    // scheduled effects.
+    if (observer.sync) {
+        observer.run();
         return;
     }
     if (observer.queued) return;
@@ -112,13 +150,14 @@ function queueObserver(observer: any) {
         observer.scheduledCancel = null;
         observer.run();
     };
-    if (observer.sync) run();
-    else observer.scheduledCancel = schedule(run, observer.priority || 'normal');
+    observer.scheduledCancel = schedule(run, observer.priority || 'normal');
 }
 function flushBatch() {
-    const list = Array.from(pendingObservers);
-    pendingObservers.clear();
-    for (const observer of list) {
+    const list = pendingObservers;
+    pendingObservers = [];
+    for (let i = 0; i < list.length; i++) {
+        const observer = list[i];
+        observer.pending = false;
         queueObserver(observer);
     }
 }
@@ -157,6 +196,7 @@ export class Observer<T = unknown> {
     label: string;
     output: Dependency | null;
     queued: boolean;
+    pending: boolean;
     scheduledCancel: (() => void) | null;
     _rerunRequested: boolean;
     lastCause: {
@@ -183,6 +223,7 @@ export class Observer<T = unknown> {
         this.label = options.name || '';
         this.output = null;
         this.queued = false;
+        this.pending = false;
         this.scheduledCancel = null;
         this._rerunRequested = false;
         this.lastCause = null;
@@ -264,7 +305,7 @@ export class Observer<T = unknown> {
     }
     dispose() {
         this.disposed = true;
-        pendingObservers.delete(this);
+        this.pending = false;
         this.scheduledCancel?.();
         this.scheduledCancel = null;
         this.queued = false;
@@ -729,6 +770,11 @@ export function state<T>(target: T): T {
     const proxy = new Proxy(target, {
         get(obj, key, receiver) {
             if (key === '__raw') return obj;
+            if (key === ARRAY_MUTATION) return arrayMutationHints.get(obj) || null;
+            if (key === ARRAY_TRACK) {
+                getDep(obj, Symbol.for('iterate')).track();
+                return obj;
+            }
             // Array.prototype.splice/push/etc perform their work as several
             // separate low-level index/length writes against `this`, each
             // of which independently hits the `set` trap below. Without
@@ -741,7 +787,15 @@ export function state<T>(target: T): T {
             // native call inside one batch() defers every one of those
             // writes' notifications until the array is fully consistent.
             if (typeof key === 'string' && Array.isArray(obj) && ARRAY_MUTATORS.has(key) && typeof (obj as any)[key] === 'function') {
-                return (...args: unknown[]) => batch(() => (obj as any)[key].apply(receiver, args));
+                return (...args: unknown[]) => {
+                    arrayMutationHints.set(obj, { method: key, args, previousLength: obj.length });
+                    activeArrayMutations.add(obj);
+                    try {
+                        return batch(() => (obj as any)[key].apply(receiver, args));
+                    } finally {
+                        activeArrayMutations.delete(obj);
+                    }
+                };
             }
             getDep(obj, key).track();
             const value = (obj as any)[key];
@@ -752,6 +806,24 @@ export function state<T>(target: T): T {
             const unwrapped = value && (value as any).__raw ? (value as any).__raw : value;
             const previous = (obj as any)[key];
             if (previous === unwrapped) return true;
+            if (Array.isArray(obj) && !activeArrayMutations.has(obj)) {
+                const index = typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key) ? Number(key) : -1;
+                if (index >= 0 && batchDepth > 0) {
+                    const prior = arrayMutationHints.get(obj);
+                    if (prior?.method === 'set' && prior.previousLength === obj.length) {
+                        (prior.indices ??= []).push(index);
+                    } else {
+                        arrayMutationHints.set(obj, {
+                            method: 'set',
+                            args: [],
+                            previousLength: obj.length,
+                            indices: [index]
+                        });
+                    }
+                } else {
+                    arrayMutationHints.delete(obj);
+                }
+            }
             (obj as any)[key] = unwrapped;
             batch(() => {
                 notifyDep(obj, key);
@@ -761,6 +833,7 @@ export function state<T>(target: T): T {
             return true;
         },
         deleteProperty(obj, key) {
+            if (Array.isArray(obj) && !activeArrayMutations.has(obj)) arrayMutationHints.delete(obj);
             const had = key in obj;
             const ok = Reflect.deleteProperty(obj, key);
             if (had && ok) {

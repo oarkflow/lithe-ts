@@ -147,6 +147,24 @@ function claimCompiledTemplate(parent, node, value, options) {
         m = String(c.data || '').match(/^l:e:(\d+)$/);
         if (m) ends.set(Number(m[1]), c);
     }
+    if (value.attributes?.length) {
+        const elements = [node, ...node.querySelectorAll('*')];
+        for (const element of elements) {
+            for (let i = 0; i < value.attributes.length; i++) {
+                const marker = `data-lithe-a${i}`;
+                if (!element.hasAttribute(marker)) continue;
+                element.removeAttribute(marker);
+                const binding = value.attributes[i];
+                let previous = element.getAttribute(binding[0]);
+                const d = effect(() => {
+                    const next = resolve(binding[1]);
+                    __setAttribute(element, binding[0], next, previous, options);
+                    previous = next;
+                }, { sync: true });
+                onCleanup(d);
+            }
+        }
+    }
     for (let i = 0; i < (value.bindings || []).length; i++) {
         const start = starts.get(i),
             end = ends.get(i);

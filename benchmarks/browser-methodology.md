@@ -263,3 +263,84 @@ confirming the fix is genuinely free for the common case while still
 helping multi-attribute elements elsewhere. Covered by a new regression
 test (`tests/rendering.test.ts`) mounting an element with three independent
 reactive attributes and asserting each updates correctly on its own.
+
+## Architectural fixes, round 5: optimize the size of the edit
+
+The general keyed diff was still paying O(n) allocation and reconciliation
+for edits whose shape was already known to be tiny. `<For>` now handles an
+identity-preserving two-row swap directly, and handles a single-row removal
+without building the general diff's Maps, retained Set, position array, and
+LIS workspace. `state()` records the active native array mutation internally,
+allowing a one-item `splice` to pass its exact index to that path instead of
+re-reading the other 999 proxy entries.
+
+The shared `selected` signal exposed a separate high-fan-out issue. A
+Dependency's compact array subscriber representation made removal linear;
+1,000 class effects removing and re-adding themselves during one update
+therefore performed repeated array searches/splices. Dependencies now promote
+to a Set at high fan-out while retaining the allocation-light representation
+for the common one/few-subscriber case. Sync batch collection similarly uses
+an array plus a per-observer dedupe flag, and synchronous effects bypass the
+bookkeeping used only by scheduled effects.
+
+Smaller mount/disposal costs were removed as well: keyed rows are detached
+from the parent owner tree because `<For>` already owns their explicit
+disposal, DOM effects no longer register the same cleanup twice, dynamic
+client regions need only one boundary marker, compiled descriptors avoid
+per-instance freezing, and an HTML class update writes `className` once rather
+than immediately repeating the same value through `setAttribute`.
+
+Median of three final production runs in Chrome 152 on macOS arm64:
+
+| Scenario     | vanilla | lithe | react | solid |
+|--------------|--------:|------:|------:|------:|
+| create1k     | 2.9 | 17.0 | 3.5 | 12.0 |
+| update10th   | 0.4 | 4.0 | 0.5 | 2.2 |
+| selectOne    | 0.1 | 1.3 | 0.5 | 1.0 |
+| swapRows     | 0.0 | 0.6 | 0.4 | 0.4 |
+| removeOne    | 0.0 | 0.8 | 0.5 | 0.3 |
+| clearAll     | 1.9 | 6.1 | 0.5 | 1.9 |
+
+The important result is scoped, not universal: swap improved from round 4's
+1.45ms to 0.6ms and removal from 2.15ms to 0.8ms, putting Lithe near React
+for small structural edits. Lithe does not yet beat React or Solid across the
+suite. Initial creation and wholesale cleanup still pay for per-row reactive
+bindings/owners, while immutable item replacements rebuild closure-backed
+rows. Whole-subtree template compilation and a stable reactive item slot are
+the next architectural opportunities; claiming otherwise would overstate
+what this round achieved.
+
+## Architectural fixes, round 6: compile the whole native subtree
+
+The compiler previously optimized only a native element whose dynamic
+children were direct text expressions. A normal nested row still emitted a
+chain of `compiledElement`/`compiledTemplate` descriptor objects and mounted
+each element separately. It now folds an entirely native nested subtree into
+one cached HTML template, including dynamic attributes. Each instance clones
+that subtree once and attaches its text/attribute bindings by cached node
+paths. Existing template comment markers are also reused as live dynamic
+boundaries instead of allocating and inserting a replacement comment.
+
+`<For>` also subscribes its reconciler once to array structure rather than to
+every numeric index it happens to read. Row objects remain reactive, so
+in-place property updates still patch their bindings. List index signals are
+lazy: renderers that never read the index no longer allocate a full reactive
+dependency per row, while renderers that do read it retain the complete Signal
+API and reactive reorder/removal updates.
+
+Median of three production runs in Chrome 152 on macOS arm64:
+
+| Scenario     | vanilla | lithe | react | solid | Lithe vs round 5 |
+|--------------|--------:|------:|------:|------:|-----------------:|
+| create1k     | 3.2 | **14.1** | 3.1 | 12.3 | −17% |
+| update10th   | 0.4 | **3.9** | 0.6 | 2.2 | −3% |
+| selectOne    | 0.1 | **1.1** | 0.5 | 1.0 | −15% |
+| swapRows     | 0.1 | **0.4** | 0.5 | 0.4 | −33% |
+| removeOne    | 0.1 | **0.8** | 0.6 | 0.3 | unchanged |
+| clearAll     | 2.0 | **5.5** | 0.5 | 1.9 | −10% |
+
+This finally puts Lithe ahead of React on the median swap result (0.4ms vs
+0.5ms) and level with Solid there. One of the three creation samples also
+beat Solid (12.3ms vs 13.0ms), but the median did not, so that is not claimed
+as a general win. Creation is materially closer; immutable row replacement
+and wholesale owner/effect disposal remain behind both comparators.

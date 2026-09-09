@@ -76,6 +76,10 @@ function attr(name, raw, ctx) {
 }
 async function renderCompiledTemplate(value, ctx, renderer) {
     let html = value.html;
+    for (let i = 0; i < (value.attributes || []).length; i++) {
+        const binding = value.attributes[i];
+        html = html.replace(`data-lithe-a${i}=""`, () => `data-lithe-a${i}=""${attr(binding[0], binding[1], ctx)}`);
+    }
     for (let i = 0; i < (value.bindings || []).length; i++) {
         const binding = value.bindings[i],
             bound = typeof binding === 'function' ? binding() : binding,

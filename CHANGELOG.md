@@ -120,6 +120,51 @@ real benchmark rather than assumed correct from reading the diff — see
 numbers. New regression test in `tests/rendering.test.ts` covers an element
 with three independent reactive attributes updating correctly on their own.
 
+### Architectural performance pass, round 5: small-edit and fan-out fast paths
+
+- `<For>` now recognizes identity-preserving two-row swaps and single-row
+  removals before allocating the general keyed diff's Maps, Sets, position
+  arrays, and longest-increasing-subsequence workspace. Reactive arrays also
+  expose the active native-mutation hint internally, so a one-item `splice`
+  reuses its already-known index instead of scanning the other 999 rows.
+- Dependencies promote their subscriber storage from the allocation-light
+  one/few-subscriber representation to a `Set` at high fan-out. This changes
+  cleanup after a shared signal update from repeated linear array splices to
+  constant-time deletion; the benchmark's selected-row signal has 1,000
+  subscribers. Sync batch deduplication now uses an indexed array plus an
+  observer flag instead of a hash Set, and skips asynchronous queue state for
+  effects that execute synchronously.
+- Keyed rows use detached-but-explicitly-owned scopes, dynamic client regions
+  use one boundary marker instead of two, HTML class updates no longer write
+  both `className` and the identical `class` attribute, and DOM effects no
+  longer register the same owner cleanup twice.
+- Chrome 152 median of three production runs: `create1k` 17.0ms,
+  `update10th` 4.0ms, `selectOne` 1.3ms, `swapRows` 0.6ms, `removeOne` 0.8ms,
+  `clearAll` 6.1ms. The targeted wins versus round 4 are swaps (1.45 → 0.6),
+  removals (2.15 → 0.8), and high-fan-out selection (~1.5 → 1.3); mount and
+  wholesale disposal remain the next compiler/runtime bottlenecks.
+- The core release budget moves from 101 KB to 104 KB raw and 31.0 KB to
+  31.5 KB gzip for these paths; the measured build is about 103.4 KB raw and
+  31.2 KB gzip.
+
+### Architectural performance pass, round 6: whole-subtree templates
+
+- The JSX compiler now folds nested all-native subtrees with dynamic text and
+  attributes into one cached compiled template. A benchmark row that formerly
+  allocated a chain of five element/template descriptors now clones one native
+  subtree and resolves all bindings through cached node paths. Compiled marker
+  comments double as live dynamic boundaries, removing two DOM operations per
+  text binding. SSR and hydration support the new attribute bindings too.
+- `<For>` tracks one structural array dependency instead of subscribing its
+  reconciler to all 1,000 numeric indices, and its index signals allocate a
+  full dependency only when a renderer actually observes the index.
+- Chrome 152 median of three production runs: `create1k` 14.1ms,
+  `update10th` 3.9ms, `selectOne` 1.1ms, `swapRows` 0.4ms, `removeOne` 0.8ms,
+  `clearAll` 5.5ms. Versus round 5 this is 17% faster creation, 15% faster
+  selection, 33% faster swapping, and 10% faster clearing. The swap median
+  now beats React (0.5ms) and ties Solid (0.4ms); remaining gaps are documented
+  without claiming a suite-wide win.
+
 ### New feature: `Suspense`
 
 - Added a real `Suspense` boundary (`@oarkflow/lithe/dom`, also re-exported

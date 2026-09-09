@@ -1,4 +1,5 @@
-import { effect, isSignal, signal } from '../core/reactive.ts';
+import { batch, effect, isSignal, signal, state as reactiveState } from '../core/reactive.ts';
+import { ARRAY_MUTATION, ARRAY_TRACK } from '../core/internal.ts';
 import { createScope, onCleanup } from '../core/owner.ts';
 import { SuspenseContext } from '../core/suspense.ts';
 import { dynamic } from './dom.ts';
@@ -9,6 +10,43 @@ function read(value) {
 function removeRow(row) {
     row?.scope?.dispose();
     for (const node of row?.nodes || []) node.remove();
+}
+function itemAt(items, rawItems, index) {
+    const item = rawItems[index];
+    return rawItems === items || item === null || typeof item !== 'object' ? item : reactiveState(item);
+}
+class ListIndex {
+    __litheSignal = true;
+    source = null;
+    constructor(value) {
+        this.current = value;
+    }
+    ensure() {
+        return this.source ||= signal(this.current);
+    }
+    get value() {
+        return this.ensure().value;
+    }
+    set value(next) {
+        if (this.source) this.source.value = next;
+        else this.current = typeof next === 'function' ? next(this.current) : next;
+    }
+    peek() {
+        return this.source ? this.source.peek() : this.current;
+    }
+    update(fn) {
+        this.value = fn(this.peek());
+        return this.peek();
+    }
+    subscribe(fn, options) {
+        return this.ensure().subscribe(fn, options);
+    }
+    toJSON() { return this.peek(); }
+    valueOf() { return this.peek(); }
+    toString() { return String(this.peek()); }
+}
+function indexSignal(value) {
+    return new ListIndex(value);
 }
 function keyFor(item, index, key) {
     if (typeof key === 'function') return key(item, index);
@@ -22,7 +60,7 @@ function bucketKey(key) {
 }
 function renderScope(mountAny, view, options) {
     const fragment = document.createDocumentFragment(),
-        scope = createScope(() => mountAny(fragment, view, null, options));
+        scope = createScope(() => mountAny(fragment, view, null, options), { detached: true });
     return {
         fragment,
         scope,
@@ -45,12 +83,105 @@ function claimRow(claim, parent, node, view, options) {
     let result;
     const scope = createScope(() => {
         result = claim(parent, node, view, options);
-    });
+    }, { detached: true });
     return {
         scope,
         nodes: result.nodes,
         next: result.next
     };
+}
+function moveRowBefore(parent, row, anchor) {
+    for (let i = 0; i < row.nodes.length; i++) parent.insertBefore(row.nodes[i], anchor);
+}
+// Avoid constructing Maps, Sets, an LIS and several N-element scratch arrays
+// for the two tiny edits that dominate interactive keyed lists. Identity is
+// deliberately required: replacing an item object must still rebuild its
+// closure-backed view with the new object.
+function fastStructuralEdit(state, items, rawItems, parent, end) {
+    const rows = state.rows;
+    if (!rows.length || !state.byKey) return false;
+    const mutation = items[ARRAY_MUTATION];
+    if (items.length === rows.length) {
+        if (mutation?.method === 'set' && mutation.previousLength === rows.length && mutation.indices?.length === 2) {
+            const left = mutation.indices[0], right = mutation.indices[1];
+            if (left !== right && left >= 0 && right >= 0 && left < rows.length && right < rows.length &&
+                itemAt(items, rawItems, left) === rows[right].item && itemAt(items, rawItems, right) === rows[left].item) {
+                const first = Math.min(left, right), second = Math.max(left, right);
+                const firstRow = rows[first], secondRow = rows[second];
+                if (!firstRow.nodes.length || !secondRow.nodes.length) return false;
+                let afterSecond = end;
+                for (let i = second + 1; i < rows.length; i++) {
+                    if (rows[i].nodes.length) {
+                        afterSecond = rows[i].nodes[0];
+                        break;
+                    }
+                }
+                moveRowBefore(parent, secondRow, firstRow.nodes[0]);
+                moveRowBefore(parent, firstRow, afterSecond);
+                rows[first] = secondRow;
+                rows[second] = firstRow;
+                secondRow.index.value = first;
+                firstRow.index.value = second;
+                return true;
+            }
+        }
+        let first = -1, second = -1;
+        for (let i = 0; i < items.length; i++) {
+            if (itemAt(items, rawItems, i) === rows[i].item) continue;
+            if (first === -1) first = i;
+            else if (second === -1) second = i;
+            else return false;
+        }
+        if (first === -1) return true;
+        if (second === -1 || itemAt(items, rawItems, first) !== rows[second].item || itemAt(items, rawItems, second) !== rows[first].item) return false;
+        const firstRow = rows[first], secondRow = rows[second];
+        if (!firstRow.nodes.length || !secondRow.nodes.length) return false;
+        let afterSecond = end;
+        for (let i = second + 1; i < rows.length; i++) {
+            if (rows[i].nodes.length) {
+                afterSecond = rows[i].nodes[0];
+                break;
+            }
+        }
+        const firstAnchor = firstRow.nodes[0];
+        moveRowBefore(parent, secondRow, firstAnchor);
+        moveRowBefore(parent, firstRow, afterSecond);
+        rows[first] = secondRow;
+        rows[second] = firstRow;
+        secondRow.index.value = first;
+        firstRow.index.value = second;
+        return true;
+    }
+    if (items.length !== rows.length - 1) return false;
+    let removed = -1;
+    if (mutation?.method === 'splice' && mutation.previousLength === rows.length && mutation.args.length >= 2 && mutation.args.length === 2) {
+        const rawStart = Number(mutation.args[0]) || 0;
+        const start = rawStart < 0 ? Math.max(rows.length + rawStart, 0) : Math.min(rawStart, rows.length);
+        const deleted = Math.min(Math.max(Number(mutation.args[1]) || 0, 0), rows.length - start);
+        if (deleted === 1) removed = start;
+    }
+    if (removed === -1) {
+        for (let i = 0; i < items.length; i++) {
+            if (itemAt(items, rawItems, i) === rows[i].item) continue;
+            removed = i;
+            break;
+        }
+        if (removed === -1) removed = rows.length - 1;
+        for (let i = removed; i < items.length; i++) {
+            if (itemAt(items, rawItems, i) !== rows[i + 1].item) return false;
+        }
+    }
+    const row = rows[removed];
+    const bucket = state.byKey.get(bucketKey(row.base));
+    // Duplicate-key occurrence bookkeeping needs the general path.
+    if (!bucket || bucket.length !== 1 || bucket[0] !== row) return false;
+    removeRow(row);
+    rows.splice(removed, 1);
+    state.byKey.delete(bucketKey(row.base));
+    batch(() => {
+        for (let i = removed; i < rows.length; i++) rows[i].index.value = i;
+    });
+    return true;
 }
 // Runs one keyed-diff pass for <For>, given the current `state.rows`/
 // `state.fallback`. Shared between __litheMount (state starts empty, so the
@@ -59,6 +190,10 @@ function claimRow(claim, parent, node, view, options) {
 // for a genuine later update) so the two paths can never diverge.
 function syncForRows(state, items, parent, end, renderer, props, options, mountAny) {
     if (!Array.isArray(items)) throw new TypeError('<For each> must be an array.');
+    // Subscribe once to structural changes, then read indices from the raw
+    // array. Tracking every index made each update detach and reattach more
+    // than a thousand dependencies before reconciliation even started.
+    const rawItems = items[ARRAY_TRACK] || items;
     if (!items.length) {
         for (const row of state.rows) removeRow(row);
         state.rows = [];
@@ -73,6 +208,7 @@ function syncForRows(state, items, parent, end, renderer, props, options, mountA
         removeRow(state.fallback);
         state.fallback = null;
     }
+    if (fastStructuralEdit(state, items, rawItems, parent, end)) return;
     // `state.byKey` is the keyed lookup this same pass built last time it
     // ran, kept around instead of rebuilt from `state.rows` on every call.
     // Rebuilding it from scratch here was an O(previous row count) Map
@@ -102,7 +238,7 @@ function syncForRows(state, items, parent, end, renderer, props, options, mountA
         // work that's identical every time. A CPU profile of create1k
         // showed that redundant re-entry into the proxy trap as one of the
         // larger non-DOM costs.
-        const currentItem = items[i];
+        const currentItem = itemAt(items, rawItems, i);
         const base = keyFor(currentItem, i, props.key);
         const bucketId = bucketKey(base);
         let newBucket = newByKey.get(bucketId);
@@ -112,7 +248,7 @@ function syncForRows(state, items, parent, end, renderer, props, options, mountA
             row = null;
         }
         if (!row) {
-            const index = signal(i),
+            const index = indexSignal(i),
                 built = renderScope(mountAny, renderer(currentItem, index), options);
             row = {
                 ...built,
@@ -208,7 +344,7 @@ export function For(props) {
     const renderer = Array.isArray(props.children) ? props.children[0] : props.children;
     return dynamic(() => {
         const items = read(props.each) || [];
-        return items.length ? items.map((item, i) => renderer(item, signal(i))) : props.fallback ?? null;
+        return items.length ? items.map((item, i) => renderer(item, indexSignal(i))) : props.fallback ?? null;
     });
 }
 For.__litheMount = ({
@@ -228,13 +364,12 @@ For.__litheMount = ({
         byKey: null,
         fallback: null
     };
-    const dispose = effect(() => {
+    effect(() => {
         syncForRows(state, read(props.each) || [], parent, end, renderer, props, options, mountAny);
     }, {
         sync: true
     });
     onCleanup(() => {
-        dispose();
         for (const row of state.rows) removeRow(row);
         removeRow(state.fallback);
         start.remove();
@@ -278,7 +413,7 @@ For.__litheClaim = ({
                 bucketId = bucketKey(base),
                 occ = occurrences.get(bucketId) || 0;
             occurrences.set(bucketId, occ + 1);
-            const index = signal(i),
+            const index = indexSignal(i),
                 claimed = claimRow(claim, parent, cursor, renderer(items[i], index), options);
             state.rows.push({
                 scope: claimed.scope,
@@ -305,13 +440,12 @@ For.__litheClaim = ({
     // keyed-bucket matching finds and reuses every claimed row rather than
     // building fresh ones — it only ever behaves as a genuine update from
     // the second real change onward.
-    const dispose = effect(() => {
+    effect(() => {
         syncForRows(state, read(props.each) || [], parent, end, renderer, props, options, mountAny);
     }, {
         sync: true
     });
     onCleanup(() => {
-        dispose();
         for (const row of state.rows) removeRow(row);
         removeRow(state.fallback);
         start.remove();
@@ -379,13 +513,12 @@ Index.__litheMount = ({
         rows: [],
         fallback: null
     };
-    const dispose = effect(() => {
+    effect(() => {
         syncIndexRows(state, read(props.each) || [], parent, end, renderer, props, options, mountAny);
     }, {
         sync: true
     });
     onCleanup(() => {
-        dispose();
         for (const row of state.rows) removeRow(row);
         removeRow(state.fallback);
         start.remove();
@@ -442,13 +575,12 @@ Index.__litheClaim = ({
     // just reassigns each row's item signal to the same value it already
     // holds (a no-op), so it only behaves as a real update from the next
     // genuine change onward.
-    const dispose = effect(() => {
+    effect(() => {
         syncIndexRows(state, read(props.each) || [], parent, end, renderer, props, options, mountAny);
     }, {
         sync: true
     });
     onCleanup(() => {
-        dispose();
         for (const row of state.rows) removeRow(row);
         removeRow(state.fallback);
         start.remove();

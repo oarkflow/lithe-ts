@@ -43,6 +43,7 @@ let trustedTypesPolicy: any = null;
 const templateRecipeCache = new WeakMap<any, Map<string, {
     template: any;
     markerPaths: Map<number, number[]> | null;
+    attributePaths: Map<number, number[]> | null;
 }>>();
 function templateRecipe(html: string, withMarkers: boolean) {
     let perDoc = templateRecipeCache.get(document);
@@ -55,8 +56,10 @@ function templateRecipe(html: string, withMarkers: boolean) {
     const template = document.createElement('template');
     template.innerHTML = html;
     let markerPaths: Map<number, number[]> | null = null;
+    let attributePaths: Map<number, number[]> | null = null;
     if (withMarkers) {
         markerPaths = new Map();
+        attributePaths = new Map();
         const walk = (node: any, path: number[]) => {
             const children = node.childNodes;
             for (let i = 0; i < children.length; i++) {
@@ -64,8 +67,16 @@ function templateRecipe(html: string, withMarkers: boolean) {
                 if (child.nodeType === 8) {
                     const m = /^l:(\d+)$/.exec(child.data || '');
                     if (m) markerPaths!.set(Number(m[1]), [...path, i]);
-                } else if (child.nodeType === 1 && child.childNodes.length) {
-                    walk(child, [...path, i]);
+                } else if (child.nodeType === 1) {
+                    const childPath = [...path, i];
+                    for (const attr of Array.from(child.attributes || []) as any[]) {
+                        const m = /^data-lithe-a(\d+)$/.exec(attr.name);
+                        if (m) {
+                            attributePaths!.set(Number(m[1]), childPath);
+                            child.removeAttribute(attr.name);
+                        }
+                    }
+                    if (child.childNodes.length) walk(child, childPath);
                 }
             }
         };
@@ -73,7 +84,8 @@ function templateRecipe(html: string, withMarkers: boolean) {
     }
     recipe = {
         template,
-        markerPaths
+        markerPaths,
+        attributePaths
     };
     perDoc.set(html, recipe);
     return recipe;
@@ -132,13 +144,13 @@ function setStyle(el: any, value: any, previous: any = {}) {
 }
 function setClass(el: any, value: any) {
     if (typeof value === 'string') {
-        el.className = value;
-        el.setAttribute?.('class', value);
+        if (typeof el.className === 'string') el.className = value;
+        else el.setAttribute?.('class', value);
         return;
     }
     const classValue = Array.isArray(value) ? value.filter(Boolean).join(' ') : value && typeof value === 'object' ? Object.entries(value).filter(([, v]) => v).map(([k]) => k).join(' ') : '';
-    el.className = classValue;
-    el.setAttribute?.('class', classValue);
+    if (typeof el.className === 'string') el.className = classValue;
+    else el.setAttribute?.('class', classValue);
 }
 function safeURL(value: any, key: string) {
     const text = String(value).trim();
@@ -246,7 +258,7 @@ function setupBinding(el: any, key: string, target: any) {
     if (!target?.__litheSignal || Object.getOwnPropertyDescriptor(target, 'value')?.set === undefined) {
         throw new Error(`bind:${prop} requires a writable signal.`);
     }
-    const dispose = effect(() => {
+    effect(() => {
         const next = target.value;
         if (prop === 'value') {
             const nextStr = next == null ? '' : String(next);
@@ -278,16 +290,13 @@ function setupBinding(el: any, key: string, target: any) {
     const listener = () => target.value = el[prop];
     el.addEventListener(event, listener);
     onCleanup(() => {
-        dispose();
         el.removeEventListener(event, listener);
     });
 }
-export function __mountChild(parent: any, child: any, before: any, options: any) {
+export function __mountChild(parent: any, child: any, before: any, options: any, boundary: any = null) {
     if (isSignal(child) || typeof child === 'function') {
-        const start = document.createComment('lithe:start');
-        const end = document.createComment('lithe:end');
-        parent.insertBefore(start, before);
-        parent.insertBefore(end, before);
+        const end = boundary || document.createComment('lithe:end');
+        if (!boundary) parent.insertBefore(end, before);
         let nodes: any[] = [];
         // `scope` backs the general case (a vnode/array/component result) and
         // is the expensive path — a whole owner scope per dynamic child.
@@ -302,7 +311,7 @@ export function __mountChild(parent: any, child: any, before: any, options: any)
         let scope: any = null;
         let textNode: any = null;
         let alive = true;
-        const dispose = effect(() => {
+        effect(() => {
             if (!alive || !end.parentNode) return;
             const value = resolveValue(child);
             const container = end.parentNode;
@@ -348,14 +357,12 @@ export function __mountChild(parent: any, child: any, before: any, options: any)
         });
         onCleanup(() => {
             alive = false;
-            dispose();
             scope?.dispose();
-            start.remove();
             end.remove();
             for (let i = 0; i < nodes.length; i++) nodes[i].remove();
         });
         return {
-            nodes: [start, ...nodes, end]
+            nodes: [...nodes, end]
         };
     }
     return __mountAny(parent, child, before, options);
@@ -426,7 +433,7 @@ function mountNativeElement(parent: any, type: string, props: any = {}, children
         }
         if (reactiveKeys) {
             const previousValues = new Array(reactiveKeys.length);
-            const dispose = effect(() => {
+            effect(() => {
                 for (let i = 0; i < reactiveKeys!.length; i++) {
                     // Single-level unwrap only, matching dynamicEffect's own
                     // behavior exactly (not resolveValue's deeper
@@ -441,14 +448,12 @@ function mountNativeElement(parent: any, type: string, props: any = {}, children
             }, {
                 sync: true
             });
-            onCleanup(dispose);
         } else if (singleKey !== null) {
             let previous: any;
-            const dispose = dynamicEffect(singleSource, next => {
+            dynamicEffect(singleSource, next => {
                 __setAttribute(el, singleKey!, next, previous, childOptions);
                 previous = next;
             });
-            if (dispose) onCleanup(dispose);
         }
     }
     if (children && children.length > 0) {
@@ -490,8 +495,18 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
             const path = recipe.markerPaths!.get(i);
             const marker = path && resolveMarkerPath(frag, path);
             if (!marker) continue;
-            __mountChild(marker.parentNode, value.bindings[i], marker, options);
-            marker.remove();
+            __mountChild(marker.parentNode, value.bindings[i], marker, options, marker);
+        }
+        for (let i = 0; i < (value.attributes?.length || 0); i++) {
+            const binding = value.attributes[i];
+            const path = recipe.attributePaths!.get(i);
+            const element = path && resolveMarkerPath(frag, path);
+            if (!element) continue;
+            let previous: any;
+            dynamicEffect(binding[1], next => {
+                __setAttribute(element, binding[0], next, previous, options);
+                previous = next;
+            });
         }
         parent.insertBefore(frag, before);
         return {
@@ -641,25 +656,26 @@ export function trustedHTML(value: any) {
     });
 }
 export function staticTemplate(html: string) {
-    return Object.freeze({
+    return {
         __litheStaticTemplate: true,
         html: String(html)
-    });
+    };
 }
-export function compiledTemplate(html: string, bindings: any[] = []) {
-    return Object.freeze({
+export function compiledTemplate(html: string, bindings: any[] = [], attributes: any[] = []) {
+    return {
         __litheCompiledTemplate: true,
         html: String(html),
-        bindings
-    });
+        bindings,
+        attributes
+    };
 }
 export function compiledElement(type: string, props: any = null, children: any = []) {
-    return Object.freeze({
+    return {
         __litheCompiledElement: true,
         type,
         props: props || {},
         children: Array.isArray(children) ? children : [children]
-    });
+    };
 }
 export function createElement(type: any, props: any, ...children: any[]) {
     return h(type, props, ...children);

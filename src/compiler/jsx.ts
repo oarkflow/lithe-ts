@@ -176,59 +176,58 @@ function isStaticNative(raw, name, fragment) {
     return true;
 }
 function directNativeTemplate(raw, name) {
-    if (!name || !isNativeName(name) || /\bon[A-Z][\w]*\s*=|\bref\s*=|\bbind:|\{\.\.\./.test(raw)) return null;
-    let quote = null,
-        openEnd = -1;
-    for (let i = 1; i < raw.length; i++) {
-        const c = raw[i];
+    if (!name || !isNativeName(name) || /<\/?[A-Z]|\bon[A-Z][\w]*\s*=|\b(?:ref|html)\s*=|\bbind:|\{\.\.\./.test(raw)) return null;
+    let html = '', quote = null, inTag = false, i = 0;
+    const bindings = [], attributes = [];
+    while (i < raw.length) {
+        const ch = raw[i];
         if (quote) {
-            if (c === '\\') i++; else if (c === quote) quote = null;
+            html += ch;
+            if (ch === '\\') html += raw[++i] || '';
+            else if (ch === quote) quote = null;
+            i++;
             continue;
         }
-        if (c === '"' || c === "'") {
-            quote = c;
+        if (ch === '"' || ch === "'") {
+            quote = ch;
+            html += ch;
+            i++;
             continue;
         }
-        if (c === '>') {
-            openEnd = i;
-            break;
+        if (ch === '<') inTag = true;
+        else if (ch === '>') inTag = false;
+        if (ch !== '{') {
+            html += ch;
+            i++;
+            continue;
         }
-    }
-    if (openEnd < 0 || raw.slice(0, openEnd + 1).includes('{')) return null;
-    const closeStart = raw.lastIndexOf(`</${name}`);
-    if (closeStart < openEnd || raw.slice(openEnd + 1, closeStart).includes('<')) return null;
-    const body = raw.slice(openEnd + 1, closeStart);
-    if (!body.includes('{')) return null;
-    let html = normalizeStaticHTML(raw.slice(0, openEnd + 1)),
-        bindings = [],
-        out = '',
-        i = 0,
-        textStart = 0;
-    while (i < body.length) {
-        if (body[i] === '{') {
-            out += body.slice(textStart, i).replace(/\s+/g, ' ');
-            let expr;
-            try {
-                expr = readBalanced(body, i, '{', '}');
-            } catch {
-                return null;
-            }
-            const content = expr.content.trim();
-            if (content && !content.startsWith('/*')) {
-                const id = bindings.length,
-                    transformed = transformJSX(content);
+        let expr;
+        try {
+            expr = readBalanced(raw, i, '{', '}');
+        } catch {
+            return null;
+        }
+        const content = expr.content.trim();
+        if (content && !content.startsWith('/*')) {
+            const transformed = transformJSX(content);
+            if (inTag) {
+                const match = /([A-Za-z_:][-\w:.]*)\s*=\s*$/.exec(html);
+                if (!match) return null;
+                const id = attributes.length;
+                html = html.slice(0, match.index) + `data-lithe-a${id}=""`;
+                attributes.push(`[${JSON.stringify(match[1])},(${transformed})]`);
+            } else {
+                const id = bindings.length;
                 bindings.push(isFunctionExpression(content) ? `(${transformed})` : `()=>(${transformed})`);
-                out += `<!--l:${id}-->`;
+                html += `<!--l:${id}-->`;
             }
-            i = expr.end;
-            textStart = i;
-            continue;
         }
-        i++;
+        i = expr.end;
     }
-    out += body.slice(textStart).replace(/\s+/g, ' ');
-    html += out + `</${name}>`;
-    return bindings.length ? `compiledTemplate(${JSON.stringify(html)},[${bindings.join(',')}])` : null;
+    if (!bindings.length && !attributes.length) return null;
+    html = normalizeStaticHTML(html);
+    const args = `${JSON.stringify(html)},[${bindings.join(',')}]`;
+    return attributes.length ? `compiledTemplate(${args},[${attributes.join(',')}])` : `compiledTemplate(${args})`;
 }
 function parseElement(source, start) {
     const state = {

@@ -36,7 +36,7 @@ test('litheRollupPlugin transforms JSX with sourcemaps', async () => {
 
 	const result = plugin.transform(jsxSource, '/app/src/Header.jsx');
 	assert.ok(result);
-	assert.ok(result.code.includes('compiledElement("header"'));
+	assert.match(result.code, /(?:compiledElement|compiledTemplate)\("(?:header|<header)/);
 	assert.ok(result.map);
 });
 

@@ -401,6 +401,42 @@ test('<For> reposition uses the longest-stable-run so a swap does not cascade th
 	for (const node of afterReverse) assert.ok(beforeReverseSet.has(node), 'reverse must reuse every existing node, not recreate any of them');
 });
 
+test('<For> lazily-created index signals stay reactive after structural edits', async t => {
+	const window = await withDOM(t);
+	if (!window) return;
+	const [{ mount }, { h }, { For }, { state }] = await Promise.all([
+		import('../src/dom/dom.ts'),
+		import('../src/dom/vnode.ts'),
+		import('../src/dom/control.ts'),
+		import('../src/core/reactive.ts')
+	]);
+	const items = state([{ id: 1 }, { id: 2 }, { id: 3 }]);
+	const root = document.createElement('div');
+	mount(root, h(For as any, { each: items }, (item: any, index: any) => h('i', null, () => `${item.id}:${index.value}`)));
+	assert.equal(root.textContent, '1:02:13:2');
+	(items as any).splice(0, 1);
+	assert.equal(root.textContent, '2:03:1');
+});
+
+test('compiled native subtrees patch dynamic text and attributes after cloning', async t => {
+	const window = await withDOM(t);
+	if (!window) return;
+	const [{ mount, compiledTemplate }, { signal }] = await Promise.all([
+		import('../src/dom/dom.ts'),
+		import('../src/core/reactive.ts')
+	]);
+	const label = signal('one');
+	const active = signal(false);
+	const root = document.createElement('div');
+	mount(root, compiledTemplate('<section><div data-lithe-a0=""><b><!--l:0--></b></div></section>', [label], [['class', () => active.value ? 'active' : '']]));
+	assert.equal(root.querySelector('div')!.className, '');
+	assert.equal(root.querySelector('b')!.textContent, 'one');
+	label.value = 'two';
+	active.value = true;
+	assert.equal(root.querySelector('div')!.className, 'active');
+	assert.equal(root.querySelector('b')!.textContent, 'two');
+});
+
 test('an element with several reactive attribute bindings shares one effect and still updates every binding independently', async t => {
 	const window = await withDOM(t);
 	if (!window) return;

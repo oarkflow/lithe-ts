@@ -62,7 +62,13 @@ test('core library build emits only reactive DOM package surface', async () => {
     // each, both add a little code for a real, measured win (see
     // browser-methodology.md "round 3" and the multi-attribute-effect
     // section) — not bloat.
-    assert.ok(result.runtimeBytes<101_000,`core runtime is ${result.runtimeBytes} bytes`);
+    // Bumped from 101_000 for the measured round-5 small-edit paths: direct
+    // two-row swap and splice-aware single removal, plus Set promotion for
+    // high-fan-out dependencies. These cut swap/removal by more than half.
+    // Bumped for round 6's whole-native-subtree templates, lazy list-index
+    // signals, and compiled-attribute hydration. This buys a measured 17%
+    // create and 33% keyed-swap improvement; gzip remains separately capped.
+    assert.ok(result.runtimeBytes<108_000,`core runtime is ${result.runtimeBytes} bytes`);
     // Bumped from 30_000: a real-browser CPU profile of a 1,000-row keyed
     // list (benchmarks/browser-methodology.md) found three dominant costs —
     // per-row owner/effect allocation, re-parsing+re-walking a compiled
@@ -74,7 +80,9 @@ test('core library build emits only reactive DOM package surface', async () => {
     // actually moved) for reorders/swaps) measurably improved every one of
     // the affected real-browser benchmark scenarios, at the cost of ~150
     // gzip bytes for the added logic. That's a fair trade, not bloat.
-    assert.ok(result.runtimeGzipBytes<31_000,`core runtime gzip is ${result.runtimeGzipBytes} bytes`);
+    // Bumped from 31_000 by 500 bytes for round 5, then to 32.5 KB for round
+    // 6's compiler/runtime template protocol (currently ~32.1 KB gzip).
+    assert.ok(result.runtimeGzipBytes<32_500,`core runtime gzip is ${result.runtimeGzipBytes} bytes`);
     assert.ok(result.declarationBytes<25_000,`core declarations are ${result.declarationBytes} bytes`);
     const declarations=await fs.readFile(path.join(out,'types/lithe.d.ts'),'utf8');
     assert.match(declarations,/declare module '@oarkflow\/lithe\/core'/);
