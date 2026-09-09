@@ -16,6 +16,54 @@ test('router middleware composes in order and can short-circuit', async () => {
 	assert.deepEqual(calls, ['before', 'guard', 'after']);
 });
 
+test('navigate() does not commit the URL when middleware denies without calling next()', async () => {
+	const router = createRouter({
+		initialURL: 'http://test/',
+		routes: [
+			{ path: '/', component: () => null },
+			{ path: '/private', middleware: [async () => 'denied'], component: () => null, load: () => 'loaded' }
+		]
+	});
+	const result = await router.navigate('/private');
+	assert.equal(result, 'denied');
+	assert.equal(router.currentURL.value.pathname, '/', 'currentURL must stay on the pre-navigation route');
+	assert.equal(router.navigation.value.state, 'blocked');
+});
+
+test('navigate() re-runs middleware on retry instead of serving a cached denial', async () => {
+	let authenticated = false;
+	const router = createRouter({
+		initialURL: 'http://test/',
+		routes: [
+			{ path: '/', component: () => null },
+			{ path: '/private', middleware: [async (_ctx, next) => authenticated ? next() : 'denied'], component: () => null, load: () => 'secret' }
+		]
+	});
+	assert.equal(await router.navigate('/private'), 'denied');
+	assert.equal(router.currentURL.value.pathname, '/');
+	authenticated = true;
+	assert.equal(await router.navigate('/private'), 'secret');
+	assert.equal(router.currentURL.value.pathname, '/private');
+});
+
+test('a slower superseded navigate() cannot commit over a faster later one', async () => {
+	let resolveSlow;
+	const router = createRouter({
+		initialURL: 'http://test/',
+		routes: [
+			{ path: '/', component: () => null },
+			{ path: '/slow', component: () => null, load: () => new Promise(resolve => { resolveSlow = resolve; }) },
+			{ path: '/fast', component: () => null, load: () => 'fast-data' }
+		]
+	});
+	const slow = router.navigate('/slow');
+	await router.navigate('/fast');
+	assert.equal(router.currentURL.value.pathname, '/fast');
+	resolveSlow('slow-data');
+	await slow;
+	assert.equal(router.currentURL.value.pathname, '/fast', 'the superseded /slow navigation must not overwrite /fast');
+});
+
 test('router wildcard component matches unknown paths as 404', () => {
 	const NotFound = () => null;
 	const router = createRouter({ initialURL: 'http://test/missing/page', routes: [{ path: '*', component: NotFound }] });

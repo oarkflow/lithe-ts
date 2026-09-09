@@ -17,7 +17,7 @@ function safe(value, seen = new WeakSet()) {
 export function ownerTree(owner = getOwner()) {
     if (!owner) return null;
     const contexts = {};
-    for (const [k, v] of owner.contexts) contexts[k.description || String(k)] = safe(v);
+    if (owner.contexts) for (const [k, v] of owner.contexts) contexts[k.description || String(k)] = safe(v);
     return {
         id: owner.id,
         name: owner.name || null,
@@ -25,7 +25,7 @@ export function ownerTree(owner = getOwner()) {
         cleanups: owner.cleanups.length,
         contexts,
         resume: safe(owner.resume),
-        children: [...owner.children].map(ownerTree)
+        children: owner.children ? [...owner.children].map(ownerTree) : []
     };
 }
 export function serializeOwnerGraph(owner = getOwner()) {

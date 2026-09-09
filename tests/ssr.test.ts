@@ -18,6 +18,18 @@ test('SSR unwraps function-valued child props', async () => {
 	assert.equal(html, '<button>Add task</button>');
 });
 
+test('SSR drops an attacker-controlled attribute name instead of emitting it literally', async () => {
+	// A spread prop object whose key is not a legal attribute name (e.g. from
+	// stored/attacker-controlled data reaching `{...record.attrs}`) must
+	// never be written into the tag verbatim: a raw space/`=` in the "name"
+	// creates extra attribute boundaries the HTML parser will honor
+	// regardless of how the value is escaped.
+	const attrs: Record<string, string> = { 'x" onmouseover="alert(1)': '1' };
+	const html = await renderToString(h('div', attrs), { document: false });
+	assert.equal(html, '<div></div>');
+	assert.doesNotMatch(html, /onmouseover/);
+});
+
 test('SSR handler resolves routes through middleware and returns 404s', async () => {
 	const router = createRouter({ routes: [{ path: '/hello', component: ({ data }) => h('h1', null, data), middleware: [async (_ctx, next) => next()], load: () => 'hello' }] });
 	const handler = createSSRHandler({ router, entry: '/src/main.js' });

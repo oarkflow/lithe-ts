@@ -4,6 +4,26 @@ import { ownerTree } from '../core/owner-resume.ts';
 import { Fragment, Text, Comment, isVNode } from '../dom/vnode.ts';
 import { escapeHTML, safeJSON } from './security.ts';
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+// Two sibling vnode children that each render to plain text (e.g.
+// `<button>clicks: {count}</button>`, two separate children) concatenate
+// into one HTML string with nothing between them. When a browser (or
+// hydrate()'s own `innerHTML =`) parses that markup back into a DOM tree,
+// adjacent text is coalesced into a SINGLE Text node — but claim() expects
+// exactly one DOM node per vnode child, so hydration mismatches and falls
+// back to a full client remount on essentially any element with more than
+// one text/dynamic child. Insert an empty comment between two renders only
+// when both sides are plain text (neither starts/ends with a tag or
+// existing comment), which keeps them as separate DOM nodes without
+// changing what's visually rendered. hydrate.ts's claim() skips this exact
+// marker back out when walking children.
+function joinRenderedSiblings(parts) {
+    let html = '';
+    for (let i = 0; i < parts.length; i++) {
+        if (i > 0 && parts[i - 1] !== '' && parts[i] !== '' && !parts[i - 1].endsWith('>') && !parts[i].startsWith('<')) html += '<!---->';
+        html += parts[i];
+    }
+    return html;
+}
 const BOOL = new Set(['disabled', 'checked', 'selected', 'multiple', 'required', 'autofocus', 'hidden', 'open', 'readonly']);
 let boundarySeq = 0;
 function read(value, ctx) {
@@ -27,7 +47,17 @@ function eventAttr(name, raw) {
     }
     return '';
 }
+// Only a conservative, well-known-safe set of characters may ever reach the
+// output as a literal (unquoted) attribute *name*. Unlike an attribute
+// *value*, an attribute name is not wrapped in quotes, so HTML-entity
+// escaping (which only affects how a VALUE's content decodes) cannot protect
+// it: a raw space, `=`, `/` or `>` inside a spread-in name (e.g. from
+// `{...record.attrs}` with attacker-controlled keys) still terminates the
+// attribute/tag exactly as the browser's tokenizer sees it, regardless of
+// entity-escaping unrelated characters. Reject anything else outright.
+const SAFE_ATTR_NAME = /^[A-Za-z_:][-A-Za-z0-9_:.]*$/;
 function attr(name, raw, ctx) {
+    if (!SAFE_ATTR_NAME.test(name)) return '';
     if (name === 'key' || name === 'ref' || name === 'children' || name.startsWith('bind:') || name === 'html') return '';
     if (name.startsWith('on')) return eventAttr(name, raw);
     const value = read(raw, ctx);
@@ -50,7 +80,12 @@ async function renderCompiledTemplate(value, ctx, renderer) {
         const binding = value.bindings[i],
             bound = typeof binding === 'function' ? binding() : binding,
             rendered = await renderer(bound, ctx);
-        html = html.replace(`<!--l:${i}-->`, rendered);
+        // A string second argument to String.replace() still interprets
+        // "$$", "$&", "$`", "$'" as substitution patterns. `rendered` is
+        // dynamic/user-derived content that hasn't been vetted for those
+        // sequences (e.g. literal "$$" in ordinary text), so use a replacer
+        // function, which passes the replacement through verbatim.
+        html = html.replace(`<!--l:${i}-->`, () => rendered);
     }
     return html;
 }
@@ -113,7 +148,7 @@ async function render(value, ctx) {
     if (value?.__lithePortal) return render(value.children, ctx);
     if (value?.__litheIsland) return render(value.children, ctx);
     if (value instanceof Promise) return render(await value, ctx);
-    if (Array.isArray(value)) return (await Promise.all(value.map(x => render(x, ctx)))).join('');
+    if (Array.isArray(value)) return joinRenderedSiblings(await Promise.all(value.map(x => render(x, ctx))));
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return escapeHTML(value);
     if (!isVNode(value)) return escapeHTML(String(value));
     const vnode = value;
@@ -174,9 +209,9 @@ async function renderStreaming(value, ctx, tasks) {
     if (value?.__lithePortal || value?.__litheIsland) return renderStreaming(value.children, ctx, tasks);
     if (value instanceof Promise) return renderStreaming(streamBoundary(value, ''), ctx, tasks);
     if (Array.isArray(value)) {
-        let out = '';
-        for (const x of value) out += await renderStreaming(x, ctx, tasks);
-        return out;
+        const parts = [];
+        for (const x of value) parts.push(await renderStreaming(x, ctx, tasks));
+        return joinRenderedSiblings(parts);
     }
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return escapeHTML(value);
     if (!isVNode(value)) return escapeHTML(String(value));

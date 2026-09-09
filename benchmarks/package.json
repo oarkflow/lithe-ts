@@ -5,18 +5,20 @@
   "type": "module",
   "scripts": {
     "bench": "node --experimental-strip-types framework-comparison.ts",
+    "bench:build": "node --experimental-strip-types ../cli/lithe.ts build apps/lithe-project && node_modules/.bin/esbuild apps/react-app.jsx --bundle --format=iife --platform=browser --jsx=automatic --minify --define:process.env.NODE_ENV='\"production\"' --outfile=apps/dist/react.js && node_modules/.bin/esbuild apps/solid-app.ts --bundle --format=iife --platform=browser --conditions=browser --minify --define:process.env.NODE_ENV='\"production\"' --outfile=apps/dist/solid.js && node_modules/.bin/esbuild apps/vanilla-app.ts --bundle --format=iife --platform=browser --minify --outfile=apps/dist/vanilla.js",
     "bench:browser": "node --experimental-strip-types real-browser.ts"
   },
   "dependencies": {
+    "happy-dom": "^17.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "solid-js": "^1.9.0",
-    "zustand": "^5.0.0",
-    "happy-dom": "^17.0.0"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.28.2"
   }
 }

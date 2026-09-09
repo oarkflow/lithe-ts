@@ -60,7 +60,13 @@ function pureInitializer(expr: string): boolean {
     expr = expr.trim();
     return /^(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/.test(expr) ||
         /^(?:null|undefined|true|false|-?\d+(?:\.\d+)?n?|['"`][\s\S]*['"`]|\[[\s\S]*\]|\{[\s\S]*\})$/.test(expr) &&
-        !/\b(?:new|await|yield|throw|delete|import)\b|\w\s*\(/.test(expr);
+        // Calls, `new`/`await`/etc, increment/decrement and plain assignment
+        // all have side effects when embedded inside an otherwise-literal
+        // array/object (e.g. `[x++, x++]` or `[x = 5]`); none of those are
+        // safe to delete just because the literal itself is unreferenced.
+        // The `=` check excludes `==`/`===`/`=>`/`<=`/`>=`/`!=` so ordinary
+        // comparisons and arrow functions inside the literal aren't flagged.
+        !/\b(?:new|await|yield|throw|delete|import)\b|\w\s*\(|\+\+|--|(?<![=!<>])=(?!=|>)/.test(expr);
 }
 
 function applyNonOverlappingEdits(code: string, rawEdits: Array<{ start: number; end: number; text: string }>): string {

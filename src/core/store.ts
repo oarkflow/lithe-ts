@@ -500,7 +500,7 @@ export function createContextStore<T extends object, P = Partial<T>>(factory: (p
             }
         }
         if (owner) {
-            owner.contexts.set(Context.key, instance);
+            (owner.contexts ??= new Map()).set(Context.key, instance);
         }
         return props.children ?? null;
     };

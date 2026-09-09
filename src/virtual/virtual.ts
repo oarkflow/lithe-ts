@@ -10,7 +10,15 @@ export function createVirtualizer(options){
   const maxMeasurements=options.maxMeasurements===0?Infinity:options.maxMeasurements??10000;
   const layout=computed(()=>{revision.value;const total=count(),offsets=new Array(total+1);offsets[0]=0;for(let i=0;i<total;i++)offsets[i+1]=offsets[i]+(measurements.get(i)||estimate);return{offsets,size:offsets[total]||0};});
   const range=computed(()=>{const {offsets,size}=layout.value,total=count();const start=Math.max(0,lowerBound(offsets,scrollTop.value)-overscan);let end=start;const limit=scrollTop.value+viewport.value;while(end<total&&offsets[end]<limit)end++;end=Math.min(total,end+overscan);return{start,end,total,size,offset:offsets[start]||0,offsets};});
-  const api={scrollTop,viewport,range,estimate,measure(index,size){if(disposed||size<=0||Object.is(measurements.get(index),size))return;measurements.set(index,size);while(measurements.size>maxMeasurements)measurements.delete(measurements.keys().next().value);revision.value++;},clearMeasurements(){if(disposed)return;measurements.clear();revision.value++;},offsetFor(index){return disposed?0:layout.value.offsets[index]||0;},sizeFor(index){return disposed?estimate:measurements.get(index)||estimate;},dispose(){if(disposed)return;disposed=true;measurements.clear();layout.dispose?.();range.dispose?.();}};
+  const api={scrollTop,viewport,range,estimate,measure(index,size){if(disposed||size<=0)return;const unchanged=Object.is(measurements.get(index),size);
+      // Re-insert (delete+set) rather than a plain set() so a re-measured
+      // key moves to the end of the Map's iteration order even when its
+      // size didn't change. A plain overwrite leaves an existing key's
+      // position untouched, so a repeatedly-remeasured but still-visible
+      // row (e.g. via ResizeObserver) stayed the "oldest" entry and was the
+      // first one evicted below once maxMeasurements was reached, even
+      // though it was actively on screen.
+      if(measurements.has(index))measurements.delete(index);measurements.set(index,size);while(measurements.size>maxMeasurements)measurements.delete(measurements.keys().next().value);if(!unchanged)revision.value++;},clearMeasurements(){if(disposed)return;measurements.clear();revision.value++;},offsetFor(index){return disposed?0:layout.value.offsets[index]||0;},sizeFor(index){return disposed?estimate:measurements.get(index)||estimate;},dispose(){if(disposed)return;disposed=true;measurements.clear();layout.dispose?.();range.dispose?.();}};
   if(getOwner()) onCleanup(api.dispose);
   return api;
 }

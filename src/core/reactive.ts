@@ -10,6 +10,7 @@ const proxyCache = new WeakMap<object, object>();
 const depsByTarget = new WeakMap<object, Map<PropertyKey, Dependency>>();
 const STATE_CLEAN = 0;
 const STATE_DIRTY = 1;
+const ARRAY_MUTATORS = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin']);
 function reportCleanupError(error: unknown): void {
     const reportError = (globalThis as any).reportError;
     if (typeof reportError === 'function') {
@@ -121,6 +122,25 @@ function flushBatch() {
         queueObserver(observer);
     }
 }
+// A single Dependency can have more than one direct subscriber (e.g. two
+// computeds derived from the same signal). Without this, a sync
+// Observer/subscribe() callback downstream of both would run to completion
+// after the FIRST subscriber's dirty propagation reaches it, and again after
+// the SECOND's — observing a torn intermediate state where one sibling
+// branch has updated and the other hasn't (a classic diamond-dependency
+// glitch), instead of running once after the whole write has settled.
+// Treating every top-level notify() as its own implicit single-write batch
+// defers all sync observer runs until the entire mark-phase fan-out from
+// this write has finished, exactly like an explicit batch() call does.
+function notifyAtomically(dep: Dependency) {
+    batchDepth++;
+    try {
+        dep.notify();
+    } finally {
+        batchDepth--;
+        if (batchDepth === 0) flushBatch();
+    }
+}
 export class Observer<T = unknown> {
     fn: (cleanup: (fn: () => void) => void) => T;
     dependencies: Dependency[];
@@ -138,6 +158,7 @@ export class Observer<T = unknown> {
     output: Dependency | null;
     queued: boolean;
     scheduledCancel: (() => void) | null;
+    _rerunRequested: boolean;
     lastCause: {
         id: number;
         name: string | null;
@@ -163,6 +184,7 @@ export class Observer<T = unknown> {
         this.output = null;
         this.queued = false;
         this.scheduledCancel = null;
+        this._rerunRequested = false;
         this.lastCause = null;
         globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerObserver?.(this);
         this.run();
@@ -207,7 +229,19 @@ export class Observer<T = unknown> {
         this.cleanups.length = 0;
     }
     run() {
-        if (this.disposed || this.running) return this.value;
+        if (this.disposed) return this.value;
+        if (this.running) {
+            // Reentrant: this observer wrote (directly or transitively) to
+            // one of its own dependencies while still evaluating. Running
+            // inline here would corrupt the in-flight dependency tracking of
+            // the outer call (cleanupDeps()/activeObserver belong to that
+            // call). Record the request instead — the outer call's `finally`
+            // below re-runs once it's no longer mid-evaluation, so the write
+            // that happened during this run is observed rather than
+            // silently dropped.
+            this._rerunRequested = true;
+            return this.value;
+        }
         this.running = true;
         this.cleanupDeps();
         const previous = activeObserver;
@@ -222,6 +256,10 @@ export class Observer<T = unknown> {
             globalThis.__LITHE_REACTIVE_CAUSE__ = previousCause;
             activeObserver = previous;
             this.running = false;
+            if (this._rerunRequested) {
+                this._rerunRequested = false;
+                this.run();
+            }
         }
     }
     dispose() {
@@ -302,7 +340,7 @@ export class SignalImpl<T> extends Dependency implements Signal<T> {
                 });
             } catch { }
         }
-        this.notify();
+        notifyAtomically(this);
     }
     peek(): T {
         return this._value;
@@ -507,7 +545,8 @@ function peekDep(target: object, key: PropertyKey): Dependency | undefined {
     return depsByTarget.get(target)?.get(key);
 }
 function notifyDep(target: object, key: PropertyKey): void {
-    peekDep(target, key)?.notify();
+    const dep = peekDep(target, key);
+    if (dep) notifyAtomically(dep);
 }
 export function state<T>(target: T): T {
     if (target === null || typeof target !== 'object') {
@@ -545,9 +584,11 @@ export function state<T>(target: T): T {
                         const prev = obj.get(k);
                         obj.set(k, v);
                         if (!had || !Object.is(prev, v)) {
-                            notifyDep(obj, k);
-                            notifyDep(obj, 'size');
-                            notifyDep(obj, Symbol.for('iterate'));
+                            batch(() => {
+                                notifyDep(obj, k);
+                                notifyDep(obj, 'size');
+                                notifyDep(obj, Symbol.for('iterate'));
+                            });
                         }
                         return receiver;
                     };
@@ -557,9 +598,11 @@ export function state<T>(target: T): T {
                         const had = obj.has(k);
                         const ok = obj.delete(k);
                         if (had && ok) {
-                            notifyDep(obj, k);
-                            notifyDep(obj, 'size');
-                            notifyDep(obj, Symbol.for('iterate'));
+                            batch(() => {
+                                notifyDep(obj, k);
+                                notifyDep(obj, 'size');
+                                notifyDep(obj, Symbol.for('iterate'));
+                            });
                         }
                         return ok;
                     };
@@ -569,9 +612,11 @@ export function state<T>(target: T): T {
                         if (obj.size > 0) {
                             const keys = Array.from(obj.keys());
                             obj.clear();
-                            for (const k of keys) notifyDep(obj, k);
-                            notifyDep(obj, 'size');
-                            notifyDep(obj, Symbol.for('iterate'));
+                            batch(() => {
+                                for (const k of keys) notifyDep(obj, k);
+                                notifyDep(obj, 'size');
+                                notifyDep(obj, Symbol.for('iterate'));
+                            });
                         }
                     };
                 }
@@ -609,9 +654,11 @@ export function state<T>(target: T): T {
                         const had = obj.has(v);
                         obj.add(v);
                         if (!had) {
-                            notifyDep(obj, v);
-                            notifyDep(obj, 'size');
-                            notifyDep(obj, Symbol.for('iterate'));
+                            batch(() => {
+                                notifyDep(obj, v);
+                                notifyDep(obj, 'size');
+                                notifyDep(obj, Symbol.for('iterate'));
+                            });
                         }
                         return receiver;
                     };
@@ -621,9 +668,11 @@ export function state<T>(target: T): T {
                         const had = obj.has(v);
                         const ok = obj.delete(v);
                         if (had && ok) {
-                            notifyDep(obj, v);
-                            notifyDep(obj, 'size');
-                            notifyDep(obj, Symbol.for('iterate'));
+                            batch(() => {
+                                notifyDep(obj, v);
+                                notifyDep(obj, 'size');
+                                notifyDep(obj, Symbol.for('iterate'));
+                            });
                         }
                         return ok;
                     };
@@ -633,9 +682,11 @@ export function state<T>(target: T): T {
                         if (obj.size > 0) {
                             const values = Array.from(obj.values());
                             obj.clear();
-                            for (const v of values) notifyDep(obj, v);
-                            notifyDep(obj, 'size');
-                            notifyDep(obj, Symbol.for('iterate'));
+                            batch(() => {
+                                for (const v of values) notifyDep(obj, v);
+                                notifyDep(obj, 'size');
+                                notifyDep(obj, Symbol.for('iterate'));
+                            });
                         }
                     };
                 }
@@ -678,6 +729,20 @@ export function state<T>(target: T): T {
     const proxy = new Proxy(target, {
         get(obj, key, receiver) {
             if (key === '__raw') return obj;
+            // Array.prototype.splice/push/etc perform their work as several
+            // separate low-level index/length writes against `this`, each
+            // of which independently hits the `set` trap below. Without
+            // this, every one of those intermediate writes notified
+            // subscribers on its own, so a sync effect/computed reading the
+            // array could run mid-splice against a torn state (e.g. a
+            // shifted-in duplicate value before the vacated slot is deleted,
+            // or a still-stale `length`) — in the worst case reading past
+            // the not-yet-updated length into a hole. Running the whole
+            // native call inside one batch() defers every one of those
+            // writes' notifications until the array is fully consistent.
+            if (typeof key === 'string' && Array.isArray(obj) && ARRAY_MUTATORS.has(key) && typeof (obj as any)[key] === 'function') {
+                return (...args: unknown[]) => batch(() => (obj as any)[key].apply(receiver, args));
+            }
             getDep(obj, key).track();
             const value = (obj as any)[key];
             if (value && typeof value === 'object') return state(value);
@@ -688,18 +753,22 @@ export function state<T>(target: T): T {
             const previous = (obj as any)[key];
             if (previous === unwrapped) return true;
             (obj as any)[key] = unwrapped;
-            notifyDep(obj, key);
-            if (Array.isArray(obj) && key !== 'length') notifyDep(obj, 'length');
-            notifyDep(obj, Symbol.for('iterate'));
+            batch(() => {
+                notifyDep(obj, key);
+                if (Array.isArray(obj) && key !== 'length') notifyDep(obj, 'length');
+                notifyDep(obj, Symbol.for('iterate'));
+            });
             return true;
         },
         deleteProperty(obj, key) {
             const had = key in obj;
             const ok = Reflect.deleteProperty(obj, key);
             if (had && ok) {
-                notifyDep(obj, key);
-                notifyDep(obj, Symbol.for('iterate'));
-                if (Array.isArray(obj)) notifyDep(obj, 'length');
+                batch(() => {
+                    notifyDep(obj, key);
+                    notifyDep(obj, Symbol.for('iterate'));
+                    if (Array.isArray(obj)) notifyDep(obj, 'length');
+                });
             }
             return ok;
         },
@@ -723,7 +792,11 @@ export function state<T>(target: T): T {
 function deepEqual(a: unknown, b: unknown, depth = 0, seen?: Set<object>): boolean {
     if (Object.is(a, b)) return true;
     if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
-    if (depth > 5) return false;
+    // Cycle safety comes from `seen` below, not from an arbitrary depth cap:
+    // a fixed cutoff made any two deeply-nested-but-equal values (depth > 5)
+    // compare as "changed" even when their content was identical, which
+    // broke watch(..., { deep: true })'s "fire only on real changes" contract
+    // for ordinary deep data (e.g. a 7-level-nested object tree).
     if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
     if (a instanceof RegExp && b instanceof RegExp) return a.source === b.source && a.flags === b.flags;
     if (Array.isArray(a) !== Array.isArray(b)) return false;

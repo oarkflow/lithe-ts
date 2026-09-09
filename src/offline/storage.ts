@@ -88,7 +88,8 @@ export async function registerBackgroundSync(registration, tag = 'lithe-sync') {
 export function createPersistentMutationQueue(storage, storageKey = 'lithe:mutation-queue', options = {}) {
     let queue = [],
         loaded = false,
-        disposed = false;
+        disposed = false,
+        flushing = false;
     const maxItems = options.maxItems === 0 ? Infinity : Math.max(1, Number(options.maxItems ?? 1000) || 1000);
     const trim = () => {
         if (queue.length > maxItems) queue.splice(0, queue.length - maxItems);
@@ -162,29 +163,40 @@ export function createPersistentMutationQueue(storage, storageKey = 'lithe:mutat
         },
         async flush(handler) {
             await ready;
+            // Without this guard, two overlapping flush() calls (e.g. an
+            // 'online' listener and a user-triggered retry) iterate the same
+            // pending snapshot and can both call handler() for one mutation
+            // before either has removed it from the queue, delivering it
+            // twice.
+            if (flushing) return;
+            flushing = true;
             traceOffline('offline:queue:flush:start', {
                 count: queue.length
             });
-            for (const item of [...queue]) {
-                try {
-                    await handler(item);
-                    queue = queue.filter(x => x.id !== item.id);
-                    await save();
-                    emit();
-                    traceOffline('offline:queue:item:end', {
-                        id: item.id
-                    });
-                } catch (error) {
-                    traceOffline('offline:queue:error', {
-                        id: item.id,
-                        message: error.message
-                    });
-                    break;
+            try {
+                for (const item of [...queue]) {
+                    try {
+                        await handler(item);
+                        queue = queue.filter(x => x.id !== item.id);
+                        await save();
+                        emit();
+                        traceOffline('offline:queue:item:end', {
+                            id: item.id
+                        });
+                    } catch (error) {
+                        traceOffline('offline:queue:error', {
+                            id: item.id,
+                            message: error.message
+                        });
+                        break;
+                    }
                 }
+            } finally {
+                flushing = false;
+                traceOffline('offline:queue:flush:end', {
+                    remaining: queue.length
+                });
             }
-            traceOffline('offline:queue:flush:end', {
-                remaining: queue.length
-            });
         },
         async clear() {
             queue = [];

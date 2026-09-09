@@ -3,6 +3,33 @@ import { getOwner, onCleanup } from '../core/owner.ts';
 function uid() {
     return globalThis.crypto?.randomUUID?.() || `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
+// insert/remove/move re-index the array's data and stable id list together,
+// but errors/touched/dirty are keyed by path (e.g. "items.0.name") and were
+// left untouched — after a reorder those flags stayed pinned to their old
+// index and ended up describing the wrong (shifted) item. mapIndex(oldIndex)
+// returns the item's new index, or null if it was removed.
+function remapFieldArrayPaths(form, name, mapIndex) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`^${escaped}\\.(\\d+)(\\..*)?$`);
+    for (const store of [form.errors, form.touched, form.dirty]) {
+        const moves = [];
+        for (const key of Object.keys(store)) {
+            const m = key.match(re);
+            if (!m) continue;
+            moves.push({
+                key,
+                value: store[key],
+                newIndex: mapIndex(Number(m[1])),
+                suffix: m[2] || ''
+            });
+        }
+        for (const move of moves) delete store[move.key];
+        for (const move of moves) {
+            if (move.newIndex == null) continue;
+            store[`${name}.${move.newIndex}${move.suffix}`] = move.value;
+        }
+    }
+}
 export function createAdvancedForm(options = {}) {
     let timer;
     const storage = options.storage || globalThis.localStorage,
@@ -60,11 +87,13 @@ export function createAdvancedForm(options = {}) {
             insert(i, v) {
                 arr().splice(i, 0, v);
                 list.splice(i, 0, uid());
+                remapFieldArrayPaths(form, name, old => old >= i ? old + 1 : old);
                 dirty();
             },
             remove(i) {
                 arr().splice(i, 1);
                 list.splice(i, 1);
+                remapFieldArrayPaths(form, name, old => old === i ? null : old > i ? old - 1 : old);
                 dirty();
             },
             move(a, b) {
@@ -72,12 +101,21 @@ export function createAdvancedForm(options = {}) {
                 arr().splice(b, 0, v);
                 const [id] = list.splice(a, 1);
                 list.splice(b, 0, id);
+                remapFieldArrayPaths(form, name, old => {
+                    if (old === a) return b;
+                    if (a < b) return old > a && old <= b ? old - 1 : old;
+                    return old >= b && old < a ? old + 1 : old;
+                });
                 dirty();
             },
             replace(v) {
                 setPath(form.values, name, [...v]);
                 list = v.map(() => uid());
                 ids.set(name, list);
+                // A full replace has no correspondence to the old indices'
+                // items, so their stale error/touched/dirty flags must not
+                // survive to be misread against the new content.
+                remapFieldArrayPaths(form, name, () => null);
                 dirty();
             }
         };

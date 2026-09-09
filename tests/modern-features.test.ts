@@ -9,6 +9,7 @@ import { reactiveGraphIR, findReactiveCycles } from '../src/compiler/ir.ts';
 import { identitySourceMap } from '../src/compiler/sourcemap.ts';
 import { createRouter } from '../src/router/router.ts';
 import { object, string, number } from '../src/forms/schema.ts';
+import { createDataGrid } from '../src/grid/grid.ts';
 import { createForm } from '../src/forms/form.ts';
 import { createAdvancedForm } from '../src/forms/advanced.ts';
 import { toJSONSchema } from '../src/forms/emit.ts';
@@ -61,7 +62,64 @@ test('nested forms and stable field arrays work', () => {
 	const advanced = createAdvancedForm({ initial: { items: [{ x: 1 }, { x: 2 }] } }); const arr = advanced.fieldArray('items'); const first = arr.fields[0].id; arr.move(0, 1); assert.equal(arr.fields[1].id, first);
 });
 
+test('DataGrid commitEdit follows the edited row by stable key across a sort that happens mid-edit', () => {
+	const rows = [{ id: 1, name: 'Bob' }, { id: 2, name: 'Amy' }];
+	const grid = createDataGrid({ data: rows, columns: [{ key: 'name' }] });
+	grid.startEdit(1, 'name'); // editing index 1 -> Amy
+	grid.toggleSort('name'); // resorts ascending: Amy(0), Bob(1)
+	grid.commitEdit('AMY-EDITED');
+	assert.deepEqual(rows, [{ id: 1, name: 'Bob' }, { id: 2, name: 'AMY-EDITED' }]);
+});
+
+test('fieldArray move/remove re-index errors/touched/dirty so they follow the shifted item', () => {
+	const form = createAdvancedForm({ initial: { items: [{ name: '' }, { name: 'ok' }] } });
+	form.errors['items.0.name'] = 'required';
+	const arr = form.fieldArray('items');
+	arr.move(0, 1);
+	assert.deepEqual({ ...form.errors }, { 'items.1.name': 'required' });
+
+	const form2 = createAdvancedForm({ initial: { items: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] } });
+	form2.errors['items.1.name'] = 'bad-b';
+	form2.errors['items.2.name'] = 'bad-c';
+	form2.fieldArray('items').remove(0);
+	assert.deepEqual({ ...form2.errors }, { 'items.0.name': 'bad-b', 'items.1.name': 'bad-c' });
+});
+
 test('schema emits JSON Schema', () => { const s = object({ name: string().min(2), age: number({ min: 1 }) }); const j = toJSONSchema(s); assert.equal(j.type, 'object'); assert.deepEqual(j.required.sort(), ['age', 'name']); assert.equal(j.properties.name.minLength, 2); });
+
+test('optional() still applies an inner default(), but keeps returning undefined for null', () => {
+	const s = string().default('foo').optional();
+	assert.equal(s.parse(undefined), 'foo');
+	assert.equal(s.parse(null), undefined);
+	assert.equal(s.parse('bar'), 'bar');
+});
+
+test('form reset() moves the dirty-tracking baseline to the new values', () => {
+	const form = createForm({ initial: {} });
+	form.reset({ name: 'Ada' });
+	assert.deepEqual({ ...form.dirty }, {});
+	form.set('name', 'Ada');
+	assert.equal(form.dirty.name, false, 'setting the value reset() just loaded must not be reported as dirty');
+	form.set('name', 'Grace');
+	assert.equal(form.dirty.name, true);
+});
+
+test('form submit() re-runs field validators and blocks on their failure', async () => {
+	let submitted = 0;
+	const form = createForm({
+		initial: { username: 'admin' },
+		fieldValidators: { username: async (v: unknown) => (v === 'admin' ? 'Username taken' : true) },
+		action: async () => { submitted++; return 'ok'; }
+	});
+	const denied = await form.submit();
+	assert.equal(denied.success, false);
+	assert.equal(form.errors.username, 'Username taken');
+	assert.equal(submitted, 0);
+	form.set('username', 'ada');
+	const allowed = await form.submit();
+	assert.equal(allowed.success, true);
+	assert.equal(submitted, 1);
+});
 
 test('advanced form owner disposal cancels autosave', async () => {
 	let saves = 0;

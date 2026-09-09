@@ -111,8 +111,8 @@ const pathKey = p => splitPath(p).join('.'),
         }
     };
 export function createForm<T extends Record<string, any> = Record<string, any>>(options: FormOptions<T> = {} as FormOptions<T>): FormApi<T> {
-    const initial = clone((options.initial || {}) as T),
-        values = state(clone(initial)) as T,
+    let initial = clone((options.initial || {}) as T);
+    const values = state(clone(initial)) as T,
         errors = state<Record<string, string>>({}),
         touched = state<Record<string, boolean>>({}),
         dirty = state<Record<string, boolean>>({}),
@@ -229,7 +229,20 @@ export function createForm<T extends Record<string, any> = Record<string, any>>(
             name: options.name || null
         });
         const r = validate();
-        if (!r.success) {
+        let success = r.success;
+        // validate() only runs the schema. Per-field async validators
+        // (fieldValidators) previously never ran on submit at all — a field
+        // whose async check had failed on blur (or was never blurred) could
+        // reach options.action/onSubmit unvalidated, and clearErrors() above
+        // had already wiped out whatever stale error blur-time validation
+        // had set. Re-run every registered field validator against the
+        // current values so submission reflects their live result.
+        const fieldKeys = Object.keys(options.fieldValidators || {});
+        if (fieldKeys.length) {
+            const results = await Promise.all(fieldKeys.map(key => validateField(key)));
+            if (results.some(ok => !ok)) success = false;
+        }
+        if (!success) {
             traceForm('form:submit:invalid', {
                 issues: Object.keys(errors).length
             });
@@ -263,8 +276,14 @@ export function createForm<T extends Record<string, any> = Record<string, any>>(
         }
     };
     const reset = (next = initial) => batch(() => {
+        // The dirty-tracking baseline must move to the new values, not stay
+        // pinned to the form's original construction-time `initial` —
+        // otherwise every set() after a reset(serverData) compares against
+        // the wrong baseline and reports fields dirty that actually match
+        // what was just loaded.
+        initial = clone(next);
         for (const k of Object.keys(values)) delete values[k];
-        Object.assign(values, clone(next));
+        Object.assign(values, clone(initial));
         for (const o of [errors, touched, dirty]) for (const k of Object.keys(o)) delete o[k];
         submitting.value = false;
         submitted.value = false;

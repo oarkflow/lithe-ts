@@ -59,7 +59,20 @@ export class Schema<T = unknown> {
         }
     }
     optional(): Schema<T | undefined> {
-        return new Schema((v, p, i) => v == null ? undefined : this._parse(v, p, i), {
+        // `.default(x).optional()` is a common chain (an optional field that
+        // falls back to x when omitted). Short-circuiting on every
+        // `undefined` here — before ever calling the wrapped schema's
+        // _parse — silently discarded that default: it lives in the inner
+        // schema and this outer wrapper never reached it. Only skip the
+        // wrapped schema when it has no default to apply; `null` keeps
+        // resolving to `undefined` either way, since default() never
+        // substitutes for `null`.
+        const hasDefault = Object.prototype.hasOwnProperty.call(this.meta, 'default');
+        return new Schema((v, p, i) => {
+            if (v === undefined) return hasDefault ? this._parse(v, p, i) : undefined;
+            if (v === null) return undefined;
+            return this._parse(v, p, i);
+        }, {
             ...this.meta,
             optional: true
         });
@@ -76,12 +89,28 @@ export class Schema<T = unknown> {
             default: defaultValue
         });
     }
-    refine(predicate: (value: T) => boolean, message = 'Invalid value'): Schema<T> {
+    refine(predicate: (value: T) => boolean, message: string | {
+        message?: string;
+        path?: PathSegment[];
+    } = 'Invalid value'): Schema<T> {
+        // A plain string message attaches to this schema's own path — the
+        // common case (a single-field check). Cross-field checks (e.g. a
+        // "confirm password" match on an object schema) have no single
+        // field of their own to attach to; passing { message, path }
+        // targets a specific child field instead, so createForm()'s
+        // path -> errors[key] mapping (and AutoForm's per-field error
+        // display) actually has somewhere to show it. Without an explicit
+        // path, such a check's issue defaults to the object's own root path
+        // and is otherwise unreachable by any single field's `error`.
+        const opts = typeof message === 'string' ? {
+            message
+        } : message;
+        const resolvedMessage = opts.message || 'Invalid value';
         return new Schema((v, p, i) => {
             const parsed = this._parse(v, p, i);
             if (!predicate(parsed)) i.push({
-                path: p,
-                message,
+                path: opts.path ? [...p, ...opts.path] : p,
+                message: resolvedMessage,
                 code: 'custom'
             });
             return parsed;
@@ -272,10 +301,15 @@ export function date(options: DateOptions = {}): Schema<Date> {
     });
 }
 export function email(): Schema<string> {
-    return string().refine(value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value), 'Invalid email address');
+    // format is set via the StringSchema constructor (spread into meta)
+    // rather than left for refine() to add: refine() reuses `this.meta`
+    // unchanged, so anything wanting to introspect "this is an email field"
+    // (AutoForm's input-type selection, JSON Schema emission, a custom form
+    // renderer) needs the tag to already be there beforehand.
+    return string({ format: 'email' }).refine(value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value), 'Invalid email address');
 }
 export function url(): Schema<string> {
-    return string().refine(value => {
+    return string({ format: 'url' }).refine(value => {
         try {
             new URL(value);
             return true;

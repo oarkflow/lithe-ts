@@ -63,6 +63,33 @@ export function server(...args) {
 export function defineAction(handlerOrOptions) {
     return server(handlerOrOptions);
 }
+export function getRegisteredServerFunction(id) {
+    return registry.get(id);
+}
+// Shared by both the /_lithe/action/:id route and the /_lithe/module/:id/:name
+// route so a permission- or CSRF-protected server() action is enforced no
+// matter which path reaches it, instead of only the former.
+async function authorizeServerCall(meta, context, request) {
+    if (meta?.options?.permission) {
+        const allowed = typeof context.can === 'function' && await context.can(meta.options.permission);
+        // Fail closed: if the app never wired a `context.can` checker, a
+        // permission-protected action must not silently become public.
+        if (!allowed) return {
+            status: 403,
+            code: 'FORBIDDEN',
+            message: 'Forbidden'
+        };
+    }
+    if (context.csrf && typeof context.csrf.verify === 'function') {
+        const token = request.headers.get('x-csrf-token');
+        if (!token || !context.csrf.verify(token, context.sessionId || '')) return {
+            status: 403,
+            code: 'CSRF',
+            message: 'Invalid or missing CSRF token'
+        };
+    }
+    return null;
+}
 export async function handleServerFunction(request, context = {}) {
     const traceId = correlationFromHeaders(request.headers) || context.traceId || null;
     context = {
@@ -91,17 +118,16 @@ export async function handleServerFunction(request, context = {}) {
         }
     });
     try {
-        if (meta.options.permission && context.can && !(await context.can(meta.options.permission))) {
-            return Response.json({
-                ok: false,
-                error: {
-                    code: 'FORBIDDEN',
-                    message: 'Forbidden'
-                }
-            }, {
-                status: 403
-            });
-        }
+        const denial = await authorizeServerCall(meta, context, request);
+        if (denial) return Response.json({
+            ok: false,
+            error: {
+                code: denial.code,
+                message: denial.message
+            }
+        }, {
+            status: denial.status
+        });
         const payload = await request.json();
         const input = meta.schema ? meta.schema.parse(payload.input) : payload.input;
         const data = await withCorrelation(traceId, () => meta.handler(input, context));
@@ -215,6 +241,22 @@ export async function createServerModuleHandler(manifest, options = {}) {
             }, {
                 status: 404
             });
+            // A server()-wrapped export reachable through this module route
+            // must be held to the same permission/CSRF checks it would get
+            // through /_lithe/action/:id — otherwise this route is a way to
+            // silently bypass every permission a server() action declared.
+            if (fn.__serverFunction && typeof fn.id === 'string') {
+                const denial = await authorizeServerCall(registry.get(fn.id), context, request);
+                if (denial) return Response.json({
+                    ok: false,
+                    error: {
+                        code: denial.code,
+                        message: denial.message
+                    }
+                }, {
+                    status: denial.status
+                });
+            }
             const payload = await request.json();
             const data = await withCorrelation(traceId, () => fn.__serverFunction ? fn(payload.input, {
                 context

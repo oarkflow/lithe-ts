@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { devServer } from '../tools/dev-server.ts';
 
 const DEMO_EXAMPLE = new URL('../examples/todo', import.meta.url).pathname;
@@ -63,9 +64,27 @@ async function assertChromiumLoads(t, project, expectedText, options: { path?: s
 test('demo dev server bootstraps HMR before application modules', async t => {
 	let dev; try { dev = await devServer(DEMO_EXAMPLE, { port: 0 }); } catch (error) { if (error.code === 'EPERM') { t.skip('Local HTTP is blocked by this environment'); return; } throw error; } t.after(() => dev.server.close());
 	const html = await (await fetch(dev.url)).text();
-	assert.ok(html.indexOf('/__lithe_hmr_client.js') < html.indexOf('/src/main.tsx'));
-	const source = await (await fetch(`${dev.url}/src/main.tsx`)).text();
-	assert.match(source, /createHotContext\("\/src\/main\.js"\)/);
+	assert.ok(html.indexOf('/__lithe_hmr_client.js') < html.indexOf('/src/index.tsx'));
+	const source = await (await fetch(`${dev.url}/src/index.tsx`)).text();
+	assert.match(source, /createHotContext\("\/src\/index\.js"\)/);
+});
+
+test('dev server reports an unexpected per-request error as a valid overlay module, not a raw stack trace', async t => {
+	const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lithe-dev-error-'));
+	t.after(() => fs.rm(projectDir, { recursive: true, force: true }).catch(() => { }));
+	await fs.mkdir(path.join(projectDir, 'src/broken.tsx'), { recursive: true }); // a directory, not a file — forces fs.readFile to fail
+	await fs.writeFile(path.join(projectDir, 'index.html'), '<!doctype html><html><head></head><body><div id="app"></div></body></html>');
+	let dev; try { dev = await devServer(projectDir, { port: 0 }); } catch (error) { if (error.code === 'EPERM') { t.skip('Local HTTP is blocked by this environment'); return; } throw error; }
+	t.after(() => dev.server.close());
+	const res = await fetch(`${dev.url}/src/broken.tsx`);
+	assert.equal(res.status, 200, 'a JS-family request must still get a 200 + valid module, or the browser never executes the body at all');
+	assert.match(res.headers.get('content-type') || '', /javascript/);
+	const body = await res.text();
+	assert.match(body, /__LITHE_DEV_ERROR__/);
+	assert.match(body, /EISDIR/);
+	const moduleFile = path.join(projectDir, 'response.mjs');
+	await fs.writeFile(moduleFile, body);
+	await assert.doesNotReject(import(pathToFileURL(moduleFile).href), 'the error-reporting response must itself be syntactically valid, importable JS');
 });
 
 test('demo dev server increments when the requested port is occupied', async t => {
@@ -78,6 +97,55 @@ test('demo dev server increments when the requested port is occupied', async t =
 
 test('real Chromium loads demo example and executes browser runtime', async t => {
 	await assertChromiumLoads(t, DEMO_EXAMPLE, /Lithe Zero/);
+});
+
+test('dev error overlay shows a runtime error thrown by app code', async t => {
+	const chromiumPath = findChromiumPath();
+	if (!chromiumPath) {
+		t.skip('Chromium/Chrome binary not found in environment');
+		return;
+	}
+	const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lithe-overlay-'));
+	t.after(() => fs.rm(projectDir, { recursive: true, force: true }).catch(() => { }));
+	await fs.mkdir(path.join(projectDir, 'src'), { recursive: true });
+	await fs.writeFile(path.join(projectDir, 'index.html'), '<!doctype html><html><head><title>Overlay Test</title></head><body><div id="app"></div><script type="module" src="/src/index.tsx"></script></body></html>');
+	await fs.writeFile(path.join(projectDir, 'src/index.tsx'), 'throw new Error("boom-overlay-test");\n');
+
+	let dev; try { dev = await devServer(projectDir, { host: '0.0.0.0', port: 0 }); } catch (error) { if (error.code === 'EPERM') { t.skip('Local HTTP is blocked by this environment'); return; } throw error; }
+	t.after(() => dev.server.close());
+	const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'lithe-chromium-overlay-')), debugPort = 9800 + Math.floor(Math.random() * 400);
+	const browser = spawn(chromiumPath, ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+	t.after(() => { browser.kill('SIGKILL'); fs.rm(profile, { recursive: true, force: true }).catch(() => { }); });
+	try {
+		const version = await waitJSON(`http://127.0.0.1:${debugPort}/json/version`);
+		const root = connectCDP(version.webSocketDebuggerUrl); await root.ready;
+		const { targetId } = await root.send('Target.createTarget', { url: 'about:blank' }); root.close();
+		let pageInfo; for (let i = 0; i < 30 && !pageInfo; i++) { const list = await waitJSON(`http://127.0.0.1:${debugPort}/json/list`); pageInfo = list.find(x => x.id === targetId); if (!pageInfo) await new Promise(r => setTimeout(r, 100)); }
+		if (!pageInfo) throw new Error('Chromium page target unavailable');
+		const page = connectCDP(pageInfo.webSocketDebuggerUrl); await page.ready; await page.send('Page.enable');
+		const loaded = page.once('Page.loadEventFired', 8000);
+		await page.send('Page.navigate', { url: dev.url });
+		await loaded;
+		await new Promise(r => setTimeout(r, 300));
+		const check = await page.send('Runtime.evaluate', {
+			expression: `(() => {
+				const host = [...document.body.children].find(el => el.shadowRoot);
+				const panel = host && host.shadowRoot.querySelector('.lithe-error-overlay');
+				if (!panel) return { found: false };
+				return { found: true, visible: panel.style.display === 'block', text: panel.textContent };
+			})()`,
+			returnByValue: true
+		});
+		page.close();
+		const value = check.result.value;
+		if (!value) { t.skip('Could not evaluate overlay state in this environment'); return; }
+		assert.equal(value.found, true, 'the error overlay host must be mounted');
+		assert.equal(value.visible, true, 'the error overlay must be visible after a runtime error');
+		assert.match(value.text, /boom-overlay-test/);
+	} catch (error) {
+		if (/ERR_BLOCKED_BY_CLIENT|ERR_CONNECTION|Timed out|unavailable/.test(error.message)) { t.skip(`Chromium environment prevented loopback integration: ${error.message}`); return; }
+		throw error;
+	}
 });
 
 test('infinite article mutation renders the newly added article', async t => {

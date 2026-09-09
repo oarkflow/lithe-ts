@@ -6,8 +6,13 @@ export interface Owner {
     id: number;
     parent: Owner | null;
     cleanups: Array<() => void>;
-    children: Set<Owner>;
-    contexts: Map<symbol, unknown>;
+    // Lazily allocated (null until first write): the overwhelming majority
+    // of owners — one is created per row in any keyed list, for example —
+    // never receive a child scope or a provided context. Eagerly allocating
+    // a Set and a Map for every single one of them is pure per-instance
+    // allocation overhead paid by code that never uses either.
+    children: Set<Owner> | null;
+    contexts: Map<symbol, unknown> | null;
     disposed: boolean;
     name: string | null;
     resume: unknown;
@@ -27,8 +32,8 @@ function createOwner(parent: Owner | null = currentOwner, options: OwnerOptions 
         id: ++ownerSeq,
         parent,
         cleanups: [],
-        children: new Set<Owner>(),
-        contexts: new Map<symbol, unknown>(),
+        children: null,
+        contexts: null,
         disposed: false,
         name: options.name || null,
         resume: options.resume || null
@@ -56,7 +61,7 @@ export function createScope<T>(fn: (dispose: () => void) => T, options: OwnerOpt
 } {
     const parent = currentOwner,
         owner = createOwner(parent, options);
-    if (parent) parent.children.add(owner);
+    if (parent) (parent.children ??= new Set()).add(owner);
     const dispose = () => disposeOwner(owner);
     try {
         return {
@@ -86,8 +91,10 @@ export function onCleanup<T extends () => void>(fn: T): T {
 export function disposeOwner(owner: Owner | null | undefined): void {
     if (!owner || owner.disposed) return;
     owner.disposed = true;
-    for (const child of [...owner.children]) disposeOwner(child);
-    owner.children.clear();
+    if (owner.children) {
+        for (const child of [...owner.children]) disposeOwner(child);
+        owner.children.clear();
+    }
     for (let i = owner.cleanups.length - 1; i >= 0; i--) try {
         owner.cleanups[i]();
     } catch (error) {
@@ -96,7 +103,7 @@ export function disposeOwner(owner: Owner | null | undefined): void {
         });
     }
     owner.cleanups.length = 0;
-    if (owner.parent) owner.parent.children.delete(owner);
+    owner.parent?.children?.delete(owner);
     hook('dispose', owner);
     owners.delete(owner.id);
 }
@@ -105,7 +112,7 @@ export function inspectOwners() {
         id: owner.id,
         name: owner.name,
         parent: owner.parent?.id || null,
-        children: [...owner.children].map(child => child.id),
+        children: owner.children ? [...owner.children].map(child => child.id) : [],
         disposed: owner.disposed
     }));
 }
@@ -119,7 +126,7 @@ export function createContext<T>(defaultValue: T, options: {
     }) => {
         const owner = getOwner();
         if (owner) {
-            owner.contexts.set(key, props.value);
+            (owner.contexts ??= new Map()).set(key, props.value);
             hook('context', owner, key, props.value);
         }
         return props.children ?? null;
@@ -131,7 +138,7 @@ export function createContext<T>(defaultValue: T, options: {
         Provider,
         provide<R>(value: T, fn: () => R): R | Promise<Awaited<R>> {
             const scope = createScope(() => {
-                currentOwner!.contexts.set(key, value);
+                (currentOwner!.contexts ??= new Map()).set(key, value);
                 hook('context', currentOwner, key, value);
                 return fn();
             }, {
@@ -145,7 +152,7 @@ export function createContext<T>(defaultValue: T, options: {
         use(): T {
             let owner = currentOwner;
             while (owner) {
-                if (owner.contexts.has(key)) return owner.contexts.get(key) as T;
+                if (owner.contexts?.has(key)) return owner.contexts.get(key) as T;
                 owner = owner.parent;
             }
             return defaultValue;
@@ -162,7 +169,7 @@ export function useContext<T>(context: {
     if (context && 'key' in context) {
         let owner = currentOwner;
         while (owner) {
-            if (owner.contexts.has(context.key)) return owner.contexts.get(context.key) as T;
+            if (owner.contexts?.has(context.key)) return owner.contexts.get(context.key) as T;
             owner = owner.parent;
         }
         return (context as any).defaultValue;

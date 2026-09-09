@@ -236,6 +236,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
     const cacheLimit = memoryLimit(options);
     let stopListening: (() => void) | null = null;
     let disposed = false;
+    let navigationToken = 0;
     const ensureActive = () => {
         if (disposed) throw new Error('Router has been disposed.');
     };
@@ -302,7 +303,7 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         };
     }
     const matched = computed(() => resolve(currentURL.value));
-    async function loadResolved(target, traceId = null) {
+    async function loadResolved(target, traceId = null, meta: { reachedLoader: boolean } | null = null) {
         ensureActive();
         const href = target.url.href;
         const context = {
@@ -315,17 +316,19 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
             traceId
         };
         const middleware = [...(options.middleware || []), ...target.chain.flatMap(route => route.middleware || [])];
-        let result;
         let index = -1;
         const run = async position => {
             if (position <= index) throw new Error('Router middleware called next() more than once.');
             index = position;
             const current = middleware[position];
             if (current) return current(context, () => run(position + 1));
+            // Every middleware called next() through to here: the navigation is
+            // actually allowed to load/commit, so this is the only branch that
+            // may read or populate the resolved-route cache.
+            if (meta) meta.reachedLoader = true;
             const cached = pageCache.get(href);
             if (cached && !cached.stale) {
                 cached.used = Date.now();
-                result = cached.byRoute;
                 return cached.data;
             }
             const values = {};
@@ -339,21 +342,24 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
                     traceId
                 }));
             }
-            result = values;
-            return target.chain.length ? values[target.chain.length - 1] : undefined;
+            const loaded = target.chain.length ? values[target.chain.length - 1] : undefined;
+            // The router may have been disposed while route.load() was
+            // in flight; do not resurrect a cache entry for a disposed router.
+            ensureActive();
+            pageCache.set(href, {
+                data: loaded,
+                byRoute: values,
+                used: Date.now(),
+                stale: false
+            });
+            if (pageCache.size > cacheLimit) {
+                const oldest = [...pageCache.entries()].sort((a, b) => a[1].used - b[1].used)[0];
+                if (oldest) pageCache.delete(oldest[0]);
+            }
+            return loaded;
         };
         const data = await withCorrelation(traceId, () => run(0));
         ensureActive();
-        pageCache.set(href, {
-            data,
-            byRoute: result,
-            used: Date.now(),
-            stale: false
-        });
-        if (pageCache.size > cacheLimit) {
-            const oldest = [...pageCache.entries()].sort((a, b) => a[1].used - b[1].used)[0];
-            if (oldest) pageCache.delete(oldest[0]);
-        }
         return data;
     }
     async function preloadResolved(target, traceId = null): Promise<void> {
@@ -368,9 +374,10 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
         const cached = prefetchCache.get(next.href);
         if (cached) {
             retainPrefetch(next.href, cached);
-            return cached;
+            return cached.promise;
         }
         const target = resolve(next);
+        const meta = { reachedLoader: false };
         const promise = (async () => {
             const traceId = newCorrelationId();
             await preloadResolved(target, traceId);
@@ -385,9 +392,9 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
                     traceId
                 });
             }
-            return loadResolved(target, traceId);
+            return loadResolved(target, traceId, meta);
         })();
-        retainPrefetch(next.href, promise);
+        retainPrefetch(next.href, { promise, meta });
         try {
             return await promise;
         } catch (error) {
@@ -397,6 +404,9 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
     }
     async function navigate(to: RouteTo, navOptions: NavigateOptions = {}): Promise<unknown> {
         ensureActive();
+        // Tokenized so a slower, superseded navigate() call can never commit
+        // over a faster, later one that has already resolved and landed.
+        const token = ++navigationToken;
         const next = new URL(typeof to === 'string' ? to : to.to, currentURL.value);
         const target = resolve(next),
             traceId = navOptions.traceId || newCorrelationId();
@@ -416,8 +426,34 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
             traceId
         };
         try {
-            const data = prefetchCache.has(next.href) ? await prefetchCache.get(next.href) : await Promise.all([preloadResolved(target, traceId), loadResolved(target, traceId)]).then(([, value]) => value);
+            const meta = { reachedLoader: false };
+            let data;
+            if (prefetchCache.has(next.href)) {
+                const entry = prefetchCache.get(next.href);
+                data = await entry.promise;
+                meta.reachedLoader = entry.meta.reachedLoader;
+            } else {
+                data = await Promise.all([preloadResolved(target, traceId), loadResolved(target, traceId, meta)]).then(([, value]) => value);
+            }
             ensureActive();
+            if (token !== navigationToken) return data;
+            if (!meta.reachedLoader) {
+                // A middleware short-circuited (returned without calling next()),
+                // e.g. an auth guard denying access. The resolved value is the
+                // guard's own return value, not route data — never commit the
+                // URL/history for a navigation that was actually denied.
+                navigation.value = {
+                    state: 'blocked',
+                    to: next,
+                    error: null,
+                    data,
+                    traceId
+                };
+                correlationEvent('navigation:blocked', {
+                    to: next.href
+                }, traceId);
+                return data;
+            }
             const commit = () => {
                 if (typeof history !== 'undefined') {
                     const fn = navOptions.replace ? history.replaceState : history.pushState;
@@ -445,16 +481,18 @@ export function createRouter(optionsOrRoutes: RouterOptions | RouteDefinition[] 
             }
             return data;
         } catch (error) {
-            navigation.value = {
-                state: 'error',
-                to: next,
-                error,
-                traceId
-            };
-            correlationEvent('navigation:error', {
-                to: next.href,
-                message: error.message
-            }, traceId);
+            if (token === navigationToken) {
+                navigation.value = {
+                    state: 'error',
+                    to: next,
+                    error,
+                    traceId
+                };
+                correlationEvent('navigation:error', {
+                    to: next.href,
+                    message: error.message
+                }, traceId);
+            }
             throw error;
         }
     }

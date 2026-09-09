@@ -23,6 +23,69 @@ const ATTRIBUTE_NAMES: Record<string, string> = {
 };
 const URL_ATTRIBUTES = new Set(['href', 'src', 'action', 'formaction', 'cite', 'poster', 'xlink:href']);
 let trustedTypesPolicy: any = null;
+// A compiled/static template's `html` string is a compile-time constant —
+// the same call site produces byte-identical markup on every render (only
+// `bindings`' values differ). Re-parsing that HTML into a <template> and
+// re-walking the whole clone with a TreeWalker + a regex test per comment
+// node — on every single mount of every single row — was one of the three
+// dominant costs a CPU profile of a 1,000-row keyed list turned up (see
+// benchmarks/browser-methodology.md). Both are pure functions of `html`, so
+// they're computed once and cached: the parsed <template> element itself
+// (its .content gets cloned, never re-parsed again) plus, for compiled
+// templates, each marker's position as a plain array of child-node indices
+// from the fragment root — resolving a marker on a fresh clone is then a
+// handful of array index lookups instead of a full-tree comment walk.
+// Cached per-document (not in one flat map) because more than one
+// `document` can be alive in the same process during tests (each test's
+// happy-dom window has its own): a template's parsed content belongs to the
+// document that parsed it, and cloning across documents is not something
+// every DOM implementation tolerates.
+const templateRecipeCache = new WeakMap<any, Map<string, {
+    template: any;
+    markerPaths: Map<number, number[]> | null;
+}>>();
+function templateRecipe(html: string, withMarkers: boolean) {
+    let perDoc = templateRecipeCache.get(document);
+    if (!perDoc) {
+        perDoc = new Map();
+        templateRecipeCache.set(document, perDoc);
+    }
+    let recipe = perDoc.get(html);
+    if (recipe) return recipe;
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    let markerPaths: Map<number, number[]> | null = null;
+    if (withMarkers) {
+        markerPaths = new Map();
+        const walk = (node: any, path: number[]) => {
+            const children = node.childNodes;
+            for (let i = 0; i < children.length; i++) {
+                const child = children[i];
+                if (child.nodeType === 8) {
+                    const m = /^l:(\d+)$/.exec(child.data || '');
+                    if (m) markerPaths!.set(Number(m[1]), [...path, i]);
+                } else if (child.nodeType === 1 && child.childNodes.length) {
+                    walk(child, [...path, i]);
+                }
+            }
+        };
+        walk(template.content, []);
+    }
+    recipe = {
+        template,
+        markerPaths
+    };
+    perDoc.set(html, recipe);
+    return recipe;
+}
+function resolveMarkerPath(fragment: any, path: number[]) {
+    let node = fragment;
+    for (let i = 0; i < path.length; i++) {
+        node = node?.childNodes[path[i]];
+        if (!node) return null;
+    }
+    return node;
+}
 function resolveValue(v: any) {
     let value = v;
     let depth = 0;
@@ -226,22 +289,55 @@ export function __mountChild(parent: any, child: any, before: any, options: any)
         parent.insertBefore(start, before);
         parent.insertBefore(end, before);
         let nodes: any[] = [];
+        // `scope` backs the general case (a vnode/array/component result) and
+        // is the expensive path — a whole owner scope per dynamic child.
+        // `textNode` backs the overwhelmingly common case (a text
+        // interpolation, or a conditional collapsing to null/boolean) and
+        // needs no scope at all: nothing inside a bare string/number/null has
+        // any cleanup to own. Skipping scope creation for that case is what
+        // keeps something like `<For>` rows with a couple of `{() =>
+        // item.label}`-style bindings from paying one owner-scope allocation
+        // per binding per row — previously *every* dynamic child paid it,
+        // even ones that could only ever render text or nothing.
         let scope: any = null;
+        let textNode: any = null;
         let alive = true;
         const dispose = effect(() => {
             if (!alive || !end.parentNode) return;
             const value = resolveValue(child);
-            if ((typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') && nodes.length === 1 && nodes[0].nodeType === 3) {
-                const text = String(value);
-                if (nodes[0].data !== text) nodes[0].data = text;
+            const container = end.parentNode;
+            if (value == null || value === false || value === true) {
+                if (!scope && !textNode && nodes.length === 0) return;
+                scope?.dispose();
+                scope = null;
+                textNode = null;
+                for (let i = 0; i < nodes.length; i++) nodes[i].remove();
+                nodes = [];
                 return;
             }
+            if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
+                const text = String(value);
+                if (textNode) {
+                    if (textNode.data !== text) textNode.data = text;
+                    return;
+                }
+                scope?.dispose();
+                scope = null;
+                for (let i = 0; i < nodes.length; i++) nodes[i].remove();
+                textNode = document.createTextNode(text);
+                nodes = [textNode];
+                if (container) container.insertBefore(textNode, end); else {
+                    textNode = null;
+                    nodes = [];
+                }
+                return;
+            }
+            textNode = null;
             scope?.dispose();
             for (let i = 0; i < nodes.length; i++) nodes[i].remove();
             const frag = document.createDocumentFragment();
             scope = createScope(() => __mountAny(frag, value, null, options));
             nodes = scope.value.nodes;
-            const container = end.parentNode;
             if (container) container.insertBefore(frag, end); else {
                 scope.dispose();
                 scope = null;
@@ -272,6 +368,23 @@ function mountNativeElement(parent: any, type: string, props: any = {}, children
             ...options,
             svg: true
         } : options;
+        // Reactive (signal/function) props share one effect instead of each
+        // getting its own, so an element with several of them (class +
+        // style + disabled + an aria-* flag together is a common
+        // combination) pays for one Observer instead of one per prop. The
+        // overwhelmingly common case — zero or exactly one reactive prop —
+        // must not pay anything extra for this: `singleKey`/`singleSource`
+        // hold that one prop directly, with no array allocated at all,
+        // until (rarely) a *second* reactive prop shows up and the two get
+        // promoted into `reactiveKeys`/`reactiveSources` together. An
+        // earlier version of this always allocated both arrays up front
+        // "just in case" — cheap-looking, but real per-row overhead at
+        // list-benchmark scale for the single-reactive-prop element shape
+        // that's actually the common case.
+        let singleKey: string | null = null,
+            singleSource: any = null,
+            reactiveKeys: string[] | null = null,
+            reactiveSources: any[] | null = null;
         for (const key in props) {
             if (key === 'ref' || key === 'children' || key === 'key') continue;
             const source = props[key];
@@ -291,9 +404,48 @@ function mountNativeElement(parent: any, type: string, props: any = {}, children
                 __setAttribute(el, key, source, undefined, childOptions);
                 continue;
             }
+            if (isSignal(source) || typeof source === 'function') {
+                if (reactiveKeys) {
+                    reactiveKeys.push(key);
+                    reactiveSources!.push(source);
+                } else if (singleKey === null) {
+                    singleKey = key;
+                    singleSource = source;
+                } else {
+                    reactiveKeys = [singleKey, key];
+                    reactiveSources = [singleSource, source];
+                    singleKey = null;
+                    singleSource = null;
+                }
+            } else {
+                // Not actually reactive (e.g. a plain style object) — apply
+                // once, same as dynamicEffect's own non-signal/function
+                // branch did.
+                __setAttribute(el, key, source, undefined, childOptions);
+            }
+        }
+        if (reactiveKeys) {
+            const previousValues = new Array(reactiveKeys.length);
+            const dispose = effect(() => {
+                for (let i = 0; i < reactiveKeys!.length; i++) {
+                    // Single-level unwrap only, matching dynamicEffect's own
+                    // behavior exactly (not resolveValue's deeper
+                    // signal-of-signal/function-of-function chasing) so an
+                    // element with one reactive prop behaves identically
+                    // whether or not a sibling prop is also reactive.
+                    const source = reactiveSources![i];
+                    const next = isSignal(source) ? source.value : source();
+                    __setAttribute(el, reactiveKeys![i], next, previousValues[i], childOptions);
+                    previousValues[i] = next;
+                }
+            }, {
+                sync: true
+            });
+            onCleanup(dispose);
+        } else if (singleKey !== null) {
             let previous: any;
-            const dispose = dynamicEffect(source, next => {
-                __setAttribute(el, key, next, previous, childOptions);
+            const dispose = dynamicEffect(singleSource, next => {
+                __setAttribute(el, singleKey!, next, previous, childOptions);
                 previous = next;
             });
             if (dispose) onCleanup(dispose);
@@ -331,19 +483,12 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
         return mountNativeElement(parent, value.type, value.props, value.children, before, options);
     }
     if (value.__litheCompiledTemplate) {
-        const t = document.createElement('template');
-        t.innerHTML = value.html;
-        const frag = t.content.cloneNode(true);
+        const recipe = templateRecipe(value.html, true);
+        const frag = recipe.template.content.cloneNode(true);
         const nodes = Array.from(frag.childNodes);
-        const markers = new Map();
-        const walker = document.createTreeWalker(frag, 128);
-        let n: any;
-        while (n = walker.nextNode()) {
-            const m = String(n.data || '').match(/^l:(\d+)$/);
-            if (m) markers.set(Number(m[1]), n);
-        }
         for (let i = 0; i < value.bindings.length; i++) {
-            const marker = markers.get(i);
+            const path = recipe.markerPaths!.get(i);
+            const marker = path && resolveMarkerPath(frag, path);
             if (!marker) continue;
             __mountChild(marker.parentNode, value.bindings[i], marker, options);
             marker.remove();
@@ -354,9 +499,8 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
         };
     }
     if (value.__litheStaticTemplate) {
-        const t = document.createElement('template');
-        t.innerHTML = value.html;
-        const frag = t.content.cloneNode(true);
+        const recipe = templateRecipe(value.html, false);
+        const frag = recipe.template.content.cloneNode(true);
         const nodes = Array.from(frag.childNodes);
         parent.insertBefore(frag, before);
         return {

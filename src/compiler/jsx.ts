@@ -118,8 +118,55 @@ function emitTag(name) {
 function isFunctionExpression(expression) {
     return /^(?:async\s+)?(?:function\b|(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>)/.test(expression.trim());
 }
+// Rewrites `className=`/`htmlFor=` to `class=`/`for=` only inside tag
+// attribute lists, never inside text content. A plain global replace over
+// the whole markup (tag + children) would also corrupt literal text that
+// happens to contain those substrings, e.g. `<pre>Use className="foo"</pre>`.
+function rewriteJSXAttributeNames(raw) {
+    let out = '', i = 0;
+    while (i < raw.length) {
+        if (raw[i] !== '<') {
+            out += raw[i];
+            i++;
+            continue;
+        }
+        if (raw[i + 1] === '/') {
+            const end = raw.indexOf('>', i);
+            if (end === -1) {
+                out += raw.slice(i);
+                break;
+            }
+            out += raw.slice(i, end + 1);
+            i = end + 1;
+            continue;
+        }
+        let quote = null, end = -1;
+        for (let k = i + 1; k < raw.length; k++) {
+            const c = raw[k];
+            if (quote) {
+                if (c === quote) quote = null;
+                continue;
+            }
+            if (c === '"' || c === "'") {
+                quote = c;
+                continue;
+            }
+            if (c === '>') {
+                end = k;
+                break;
+            }
+        }
+        if (end === -1) {
+            out += raw.slice(i);
+            break;
+        }
+        out += raw.slice(i, end + 1).replace(/\bclassName=/g, 'class=').replace(/\bhtmlFor=/g, 'for=');
+        i = end + 1;
+    }
+    return out;
+}
 function normalizeStaticHTML(raw) {
-    let html = raw.replace(/\bclassName=/g, 'class=').replace(/\bhtmlFor=/g, 'for=');
+    let html = rewriteJSXAttributeNames(raw);
     html = html.replace(/<([a-z][\w:-]*)([^>]*)\/>/g, (m, tag, attrs) => VOID.has(tag) ? `<${tag}${attrs}>` : `<${tag}${attrs}></${tag}>`);
     return html.replace(/>\s+</g, '><').replace(/\s+/g, ' ').trim();
 }
@@ -419,6 +466,10 @@ function captureIsReadOnly(body, name) {
     if (new RegExp(`\\b${q}\\b\\s*(?:\\+\\+|--|[+\\-*/%&|^]?=|\\?\\?=|&&=|\\|\\|=)`).test(body)) return false;
     if (new RegExp(`\\b${q}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]+\\])\\s*(?:\\+\\+|--|[+\\-*/%&|^]?=|\\?\\?=|&&=|\\|\\|=)`).test(body)) return false;
     if (new RegExp(`\\b${q}\\s*\\.(?:push|pop|shift|unshift|splice|sort|reverse|copyWithin|fill|set|add|delete|clear)\\s*\\(`).test(body)) return false;
+    // `delete captured.prop` / `delete captured[key]` mutates the captured
+    // object just like an assignment would, but isn't a `.delete(...)`
+    // method call and isn't caught by the assignment-operator checks above.
+    if (new RegExp(`\\bdelete\\s+${q}\\s*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]+\\])`).test(body)) return false;
     return true;
 }
 function eventChunkName(filename, seq) {

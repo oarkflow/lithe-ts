@@ -13,7 +13,10 @@ const authoredRoots=['src','tools','cli','tests','benchmarks'];
 
 test('repository has no authored JavaScript implementation files',async()=>{
   const offenders:string[]=[];
-  for(const dir of authoredRoots){for(const file of await walk(path.join(root,dir)))if(file.endsWith('.js')&&!file.includes(`${path.sep}node_modules${path.sep}`))offenders.push(path.relative(root,file));}
+  // benchmarks/apps/dist/** (esbuild bundles of React/Solid, for the real-browser
+  // comparison) and lithe-project/dist/** (that project's own `lithe build`
+  // output) are generated artifacts, exactly like examples/*/dist below.
+  for(const dir of authoredRoots){for(const file of await walk(path.join(root,dir)))if(file.endsWith('.js')&&!file.includes(`${path.sep}dist${path.sep}`)&&!file.includes(`${path.sep}node_modules${path.sep}`))offenders.push(path.relative(root,file));}
   for(const file of await walk(path.join(root,'examples')))if(file.endsWith('.js')&&!file.includes(`${path.sep}dist${path.sep}`)&&!file.includes(`${path.sep}node_modules${path.sep}`))offenders.push(path.relative(root,file));
   assert.deepEqual(offenders,[]);
 });

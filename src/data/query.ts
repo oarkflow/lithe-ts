@@ -1,5 +1,6 @@
 import { signal, batch } from '../core/reactive.ts';
 import { getOwner, onCleanup } from '../core/owner.ts';
+import { registerSuspense } from '../core/suspense.ts';
 import { currentCorrelation, withCorrelation, correlationEvent } from '../observability/carrier.ts';
 import type { Signal } from '../core/types.ts';
 export type QueryKey = unknown | (() => unknown);
@@ -273,12 +274,16 @@ export class QueryClient {
         return this.cache.get(resolveKey(key))?.data.peek();
     }
     invalidate(prefix: QueryKey): void {
+        // This is a key-prefix invalidation only. Treating array key
+        // elements as tags let an unrelated query sharing a tag equal to
+        // one of the key segments (e.g. invalidate(['user', 42]) matching a
+        // query tagged '42' for something else entirely) go stale for the
+        // wrong reason. Tag-based invalidation is invalidateTags()/callers
+        // that explicitly pass a string tag (see mutation()'s invalidate
+        // handling, which calls both invalidate(key) and invalidateTags(key)
+        // when key is a string).
         const hash = resolveKey(prefix);
         for (const [key, entry] of this.cache) if (key.includes(hash) || key.startsWith(hash) || key === hash) entry.updatedAt = 0;
-        if (typeof prefix === 'string' || Array.isArray(prefix)) {
-            const tags = Array.isArray(prefix) ? prefix : [prefix];
-            for (const entry of this.cache.values()) if (tags.some(t => entry.tags.has(String(t)))) entry.updatedAt = 0;
-        }
         this.emit({
             type: 'invalidate',
             key: hash
@@ -405,7 +410,9 @@ export function query<T = unknown>(options: QueryOptions<T>): QueryResult<T> {
     entry.options = options;
     if (options.tags) entry.tags = new Set(options.tags);
     let release = client.retain(entry, options);
+    let disposed = false;
     const refresh = async (force = true) => {
+        if (disposed) return entry.data.peek();
         const hash = resolveKey(options.key);
         if (hash !== currentHash) {
             release();
@@ -420,8 +427,21 @@ export function query<T = unknown>(options: QueryOptions<T>): QueryResult<T> {
             force
         });
     };
-    if (options.enabled !== false) refresh(false).catch(e => console.warn('[lithe:data] Failed to fetch query:', e));
-    if (getOwner()) onCleanup(() => release());
+    if (options.enabled !== false) {
+        // Only the initial load reports to an ancestor <Suspense> boundary —
+        // matching the framework-agnostic convention (React/Solid): a later
+        // manual refresh()/refetch is "stale while revalidating" and should
+        // not re-suspend a boundary that has already shown real content.
+        const initial = refresh(false);
+        registerSuspense(initial);
+        initial.catch(e => console.warn('[lithe:data] Failed to fetch query:', e));
+    }
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        release();
+    };
+    if (getOwner()) onCleanup(dispose);
     return {
         get data() {
             return entry.data.value;
@@ -436,8 +456,8 @@ export function query<T = unknown>(options: QueryOptions<T>): QueryResult<T> {
             return !entry.updatedAt || Date.now() - entry.updatedAt >= parseDuration(options.stale ?? client.defaults.stale);
         },
         refresh: () => refresh(true),
-        abort: () => entry.controller?.abort('aborted'),
-        dispose: release,
+        abort: () => { if (!disposed) entry.controller?.abort('aborted'); },
+        dispose,
         key: () => currentHash
     };
 }
@@ -493,8 +513,13 @@ export function infiniteQuery<T = unknown, P = unknown>(options: any) {
             error.value = e;
             throw e;
         } finally {
-            if (activeController === controller) activeController = null;
-            loading.value = false;
+            // A superseded/aborted fetch must not clear the loading state of
+            // a newer, still-in-flight fetch that has already replaced it as
+            // activeController.
+            if (activeController === controller) {
+                activeController = null;
+                loading.value = false;
+            }
         }
     }
     const initial = options.initialPageParam;

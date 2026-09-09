@@ -62,9 +62,9 @@ export function serializeOwners() {
         id: o.id,
         name: o.name || null,
         disposed: o.disposed,
-        contexts: Object.fromEntries([...o.contexts].map(([k, v]) => [k.description || String(k), v?.__litheSignal ? v.peek?.() ?? v.value : v]).filter(([, v]) => v == null || ['string', 'number', 'boolean'].includes(typeof v))),
+        contexts: Object.fromEntries([...(o.contexts || [])].map(([k, v]) => [k.description || String(k), v?.__litheSignal ? v.peek?.() ?? v.value : v]).filter(([, v]) => v == null || ['string', 'number', 'boolean'].includes(typeof v))),
         resume: o.resume || null,
-        children: [...o.children].map(clean)
+        children: [...(o.children || [])].map(clean)
     });
     return roots.map(clean);
 }

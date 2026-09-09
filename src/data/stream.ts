@@ -133,7 +133,7 @@ export function stream(url, options = {}) {
         transport.send(typeof value === 'string' ? value : JSON.stringify(value));
     };
     if (options.autoConnect !== false && typeof window !== 'undefined') connect();
-    if (getOwner()) onCleanup(close);
+    if (getOwner()) onCleanup(dispose);
     return {
         data,
         error,

@@ -43,6 +43,7 @@ export async function registerServiceWorker(url = '/sw.js', options = {}) {
 }
 export function createMutationQueue(storageKey = 'lithe:mutation-queue', options = {}) {
     let queue = [];
+    let flushing = false;
     const storage = typeof localStorage !== 'undefined' ? localStorage : null;
     const maxItems = options.maxItems === 0 ? Infinity : Math.max(1, Number(options.maxItems ?? 1000) || 1000);
     const trim = () => {
@@ -87,14 +88,25 @@ export function createMutationQueue(storageKey = 'lithe:mutation-queue', options
             save();
         },
         async flush(handler) {
-            for (const item of [...queue]) {
-                try {
-                    await handler(item);
-                    queue = queue.filter(x => x.id !== item.id);
-                    save();
-                } catch {
-                    break;
+            // Without this guard, an overlapping call (e.g. an 'online'
+            // listener firing while a user-triggered retry is still
+            // in-flight) iterates the same pending items and can call
+            // handler() twice for one mutation before either call has
+            // removed it from the queue, sending it to the server twice.
+            if (flushing) return;
+            flushing = true;
+            try {
+                for (const item of [...queue]) {
+                    try {
+                        await handler(item);
+                        queue = queue.filter(x => x.id !== item.id);
+                        save();
+                    } catch {
+                        break;
+                    }
                 }
+            } finally {
+                flushing = false;
             }
         }
     };

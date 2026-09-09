@@ -51,7 +51,7 @@ This is the canonical progress tracker for the zero-third-party-dependency Lithe
 - [x] Fine-grained text, child, attribute/property, class and style bindings.
 - [x] Boolean/form properties and writable `bind:*` support.
 - [x] Delegated and direct events with root-scoped listener tracking.
-- [x] Fragments, `Show`, `For`, `Index`, `Switch`, `Match`, `Dynamic`, `Await` and error boundary primitives.
+- [x] Fragments, `Show`, `For`, `Index`, `Switch`, `Match`, `Dynamic`, `Await`, `Suspense` and error boundary primitives.
 - [x] Persistent keyed row reconciliation with DOM movement and scope retention.
 - [x] Index-preserving non-keyed list reconciliation.
 - [x] Portal primitive.
@@ -115,6 +115,7 @@ This is the canonical progress tracker for the zero-third-party-dependency Lithe
 - [x] Focus/reconnect revalidation.
 - [x] Infinite and cursor pagination helpers.
 - [x] Resource primitive.
+- [x] `Suspense` boundary: `query()`/`resource()` report a pending initial load to the nearest ancestor boundary; content mounts once and is only reattached/detached (never recreated) as the boundary's pending count changes.
 - [x] Mutations with pending/data/error, optimistic state and rollback.
 - [x] Tag-aware automatic mutation→query invalidation.
 - [x] Compiler/build mutation/query data graph manifest.

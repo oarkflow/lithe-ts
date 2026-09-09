@@ -16,6 +16,10 @@ export function toJSONSchema(schema, options = {}) {
         if (meta.min != null) out.minLength = meta.min;
         if (meta.max != null) out.maxLength = meta.max;
         if (meta.pattern) out.pattern = meta.pattern.source;
+        // JSON Schema's format keyword spells the URL format "uri", while
+        // HTML5's <input type> spells it "url" — both name the same
+        // semantic format, translate at this boundary.
+        if (meta.format === 'email') out.format = 'email'; else if (meta.format === 'url') out.format = 'uri';
     } else if (meta.type === 'number') {
         out.type = meta.integer ? 'integer' : 'number';
         if (meta.min != null) out.minimum = meta.min;

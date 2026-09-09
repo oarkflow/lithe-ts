@@ -57,6 +57,14 @@ function resolve(v) {
 function primitive(v) {
     return typeof v === 'string' || typeof v === 'number' || typeof v === 'bigint';
 }
+// SSR inserts an empty `<!---->` comment between two sibling children that
+// would otherwise both render as plain text, so the HTML parser can't
+// coalesce them into a single Text node (see joinRenderedSiblings in
+// ssr.ts) — claim() needs exactly one DOM node per vnode child. Skip that
+// marker back out here before claiming the next child in a sequence.
+function skipTextSeparator(node) {
+    return node && node.nodeType === 8 && node.data === '' ? node.nextSibling : node;
+}
 function removeBetween(start, end) {
     let n = start.nextSibling;
     while (n && n !== end) {
@@ -197,7 +205,7 @@ function claim(parent, node, v, options) {
         let cur = node,
             nodes = [];
         for (const x of v) {
-            const r = claim(parent, cur, x, options);
+            const r = claim(parent, skipTextSeparator(cur), x, options);
             cur = r.next;
             nodes.push(...r.nodes);
         }
@@ -221,7 +229,7 @@ function claim(parent, node, v, options) {
         if (!node || node.nodeType !== 1 || node.localName !== String(v.type).toLowerCase()) throw mismatch(`Hydration mismatch: ${v.type}`, node, `<${String(v.type).toLowerCase()}>`);
         setupProps(node, v.props, options);
         let child = node.firstChild;
-        for (const x of v.children || []) child = claim(node, child, x, options).next;
+        for (const x of v.children || []) child = claim(node, skipTextSeparator(child), x, options).next;
         while (child) {
             const next = child.nextSibling;
             reportMismatch('Hydration removed extra child', child, null);
@@ -238,7 +246,7 @@ function claim(parent, node, v, options) {
         let cur = node,
             nodes = [];
         for (const x of v.children) {
-            const r = claim(parent, cur, x, options);
+            const r = claim(parent, skipTextSeparator(cur), x, options);
             cur = r.next;
             nodes.push(...r.nodes);
         }
@@ -248,6 +256,27 @@ function claim(parent, node, v, options) {
         };
     }
     if (typeof v.type === 'function') {
+        if (v.type.__litheClaim) {
+            // Mirrors __mountAny's .__litheMount dispatch: For/Index/Portal/
+            // Island each need to claim their already-rendered SSR DOM and
+            // wire up their real update/relocation/activation behavior,
+            // not fall through to invoking the plain component function
+            // (which returns CSR-only fallback shapes for Island/Portal, and
+            // a bare reactive closure for For/Index that would only ever
+            // get generic full-remount-on-change handling downstream).
+            return v.type.__litheClaim({
+                parent,
+                node,
+                props: {
+                    ...v.props,
+                    children: v.children
+                },
+                children: v.children,
+                options,
+                claim,
+                mountAny: __mountAny
+            });
+        }
         const scope = createScope(() => v.type({
             ...v.props,
             children: v.children
@@ -259,7 +288,7 @@ function claim(parent, node, v, options) {
     if (!node || node.nodeType !== 1 || node.localName !== String(v.type).toLowerCase()) throw mismatch(`Hydration mismatch: ${v.type}`, node, `<${String(v.type).toLowerCase()}>`);
     setupProps(node, v.props, options);
     let child = node.firstChild;
-    for (const x of v.children) child = claim(node, child, x, options).next;
+    for (const x of v.children) child = claim(node, skipTextSeparator(child), x, options).next;
     while (child) {
         const next = child.nextSibling;
         reportMismatch('Hydration removed extra child', child, null);
@@ -297,6 +326,15 @@ export function hydrate(root, view, options = {}) {
         lastHydrationReport.fallback = true;
         if (!lastHydrationReport.mismatches.length) reportMismatch(error.message, root, null);
         if (options.onMismatch) options.onMismatch(error, getHydrationReport());
+        // Surface to the dev error overlay automatically (installed by the
+        // dev server's HMR client) without requiring every app to wire its
+        // own onMismatch — a silent full-remount fallback is exactly the
+        // kind of regression that's easy to miss without it.
+        globalThis.__LITHE_DEV_OVERLAY__?.({
+            type: 'Hydration Mismatch',
+            message: `${error.message} — fell back to a full client remount.`,
+            stack: lastHydrationReport.mismatches.map(m => `${m.message} (expected ${m.expected ?? '?'}, got ${m.node})`).join('\n')
+        });
         if (options.strict) throw error;
         return mount(root, resolved, {
             ...options,

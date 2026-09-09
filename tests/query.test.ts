@@ -188,7 +188,8 @@ test('stream disposal cannot be resurrected by reconnect', () => {
     onerror: any = null;
     onclose: any = null;
     readyState = 1;
-    constructor(public url: string) { sources.push(this); }
+    url: string;
+    constructor(url: string) { this.url = url; sources.push(this); }
     close() { this.readyState = 2; this.onclose?.(); }
   }
   (globalThis as any).window = {};

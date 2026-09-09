@@ -13,7 +13,17 @@ export function setDirectEvent(element, prop, handler, previous) {
     if (handler) element.addEventListener(name, handler);
 }
 export function installDelegatedEvents(root, eventTypes = ['click', 'input', 'change', 'submit', 'keydown', 'keyup', 'pointerdown', 'pointerup']) {
-    if (root[ROOT_EVENTS]) return root[ROOT_EVENTS];
+    const existing = root[ROOT_EVENTS];
+    if (existing) {
+        // Multiple independent mounts can share one root (e.g. islands, or
+        // several mount() calls into the same container). Previously every
+        // caller received and registered onCleanup() with the SAME shared
+        // dispose function, so disposing any one of them tore down
+        // delegation for every other mount still using this root. Give each
+        // caller its own release that only decrements a shared ref count;
+        // the real listeners come off only once the last one releases.
+        return existing.retain();
+    }
     const disposers = [];
     let disposed = false;
     for (const type of new Set(eventTypes)) {
@@ -41,15 +51,29 @@ export function installDelegatedEvents(root, eventTypes = ['click', 'input', 'ch
         root.addEventListener(type, listener);
         disposers.push(() => root.removeEventListener(type, listener));
     }
-    const dispose = () => {
+    let refs = 0;
+    const teardown = () => {
         if (disposed) return;
         disposed = true;
         for (const fn of disposers) fn();
         delete root[ROOT_EVENTS];
     };
-    root[ROOT_EVENTS] = dispose;
-    if (getOwner()) onCleanup(dispose);
-    return dispose;
+    const retain = () => {
+        refs++;
+        let released = false;
+        const release = () => {
+            if (released) return;
+            released = true;
+            refs = Math.max(0, refs - 1);
+            if (refs === 0) teardown();
+        };
+        if (getOwner()) onCleanup(release);
+        return release;
+    };
+    root[ROOT_EVENTS] = {
+        retain
+    };
+    return retain();
 }
 export function setDelegatedEvent(element, prop, handler) {
     element[`__lithe_${eventName(prop)}`] = handler;

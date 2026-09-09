@@ -364,6 +364,7 @@ const durableQueue = createPersistentMutationQueue(storage, 'app:mutations', { m
 
 - nested / parallel / intercepted **router** with typed loaders, typed search params, and View Transitions
 - **query cache** with persistence, infinite/cursor queries, request cancellation, retries, and focus/reconnect refresh
+- **`Suspense`** boundaries: `query()`/`resource()` report a pending fetch to the nearest ancestor automatically, so a subtree can show one fallback for however many resources it starts without each one checking its own `.loading`
 - optimistic **mutations** and tag-driven automatic invalidation
 - **schemas**, nested forms, cancelable async validation, field arrays, drafts, and `AutoForm`
 - **JSON Schema / OpenAPI** schema generation
@@ -391,7 +392,7 @@ const durableQueue = createPersistentMutationQueue(storage, 'app:mutations', { m
 
 ### Development and production tooling
 
-- zero-dependency **dev server** with HMR, dependency invalidation, and named-signal preservation
+- zero-dependency **dev server** with HMR, dependency invalidation, named-signal preservation, and an in-browser error overlay for compile/runtime/hydration errors
 - production **native-ESM chunk graph** (`--bundle=chunks`) or single-file bundle
 - reachability pruning, **symbol tree shaking**, **DCE**, and dependency-free minification
 - **event-level lazy chunks**

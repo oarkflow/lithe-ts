@@ -53,18 +53,28 @@ export function createDataGrid(options) {
             selected.value = new Set();
         },
         startEdit(rowIndex, columnKey) {
+            const row = rows.value[rowIndex];
             editing.value = {
                 rowIndex,
-                columnKey
+                columnKey,
+                // Captured so commitEdit can detect and recover from a
+                // sort/filter change that happens while editing is open,
+                // instead of trusting a raw index that may now point at a
+                // different logical row.
+                rowKey: row !== undefined ? keyOf(row, rowIndex) : undefined
             };
         },
         commitEdit(value) {
             const e = editing.value;
             if (!e) return;
-            const row = rows.value[e.rowIndex];
+            let row = rows.value[e.rowIndex];
+            if (row === undefined || keyOf(row, e.rowIndex) !== e.rowKey) {
+                row = rows.value.find((r, i) => keyOf(r, i) === e.rowKey);
+            }
+            const rowIndex = rows.value.indexOf(row);
             options.onEdit?.({
                 row,
-                rowIndex: e.rowIndex,
+                rowIndex,
                 columnKey: e.columnKey,
                 value
             });

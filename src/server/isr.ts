@@ -31,6 +31,15 @@ export function createISRCache(options = {}) {
                     entry.expires = Date.now() + ttl;
                     return value;
                 }).finally(() => entry.promise = null);
+                // In the default non-blocking path below, this promise is
+                // never awaited by the caller (the stale value is returned
+                // immediately) — it's only observed opportunistically if a
+                // later get() happens to await it in blocking mode. A
+                // transient render() failure must not become an unhandled
+                // rejection: by default Node terminates the process on one,
+                // which would take down every ISR-cached page, not just this
+                // key, defeating stale-while-revalidate's whole purpose.
+                entry.promise.catch(error => options.onError?.(error, key));
             }
             if (options.blocking) {
                 entry.value = await entry.promise;
