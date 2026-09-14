@@ -116,7 +116,11 @@ const RUNTIME_MODULES = new Set([
 ]);
 
 function rewriteBuiltImports(code: string): string {
-	return code.replace(/((?:from\s+|import\s*\()\s*['"][^'"]+)\.(?:ts|tsx)(['"])/g, '$1.js$2');
+	// `from\s+` (mandatory) never matches minified `from'...'` (zero spaces)
+	// — not currently exercised here since this always runs on freshly
+	// TypeScript-stripped (not pre-minified) source, but see tools/build.ts's
+	// importRE for why that assumption is worth not repeating regardless.
+	return code.replace(/((?:from\s*|import\s*\()\s*['"][^'"]+)\.(?:ts|tsx)(['"])/g, '$1.js$2');
 }
 
 function declarationBlockEnd(source: string, open: number): number {

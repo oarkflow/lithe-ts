@@ -38,7 +38,19 @@ import { splitInlineServerFunctions, removeUnusedServerReferences } from './serv
 import { collectUsedExports, treeShakeModule } from './tree-shake.ts';
 import { compileTailwind } from '../src/plugins/tailwind.ts';
 
-const importRE = /(?:import|export)\s+(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"]/g;
+// `\s+` (mandatory whitespace) between `import`/`export` and what follows
+// breaks on already-minified framework files: node_modules/@oarkflow/lithe's
+// shipped .js is minified (tools/build-library.ts), producing
+// `import{schedule}from'./scheduler.js';` with zero spaces around `{`/
+// `from`. Every space that's actually optional in valid JS (before a `{`/`*`
+// clause, around `from`, before a bare side-effect-import string) uses `\s*`
+// here instead — a default-import's required identifier-separating space
+// can never be minified away regardless, so this loses no real matches. An
+// unpatched build silently drops any framework module only reachable
+// transitively through another framework file's own import statement
+// (walkReachable never discovers it), which produced dangling imports at
+// runtime for names like `getOwner` in a consumer's tree-shaken build.
+const importRE = /(?:import|export)\s*(?:[^'";]+?\s*from\s*)?['"]([^'"]+)['"]/g;
 const dynamicImportRE = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 async function copyTree(from, to, transform) {
@@ -98,7 +110,7 @@ async function emitFrameworkTree(to) {
 	}
 }
 
-function dependencySpecs(code) {
+export function dependencySpecs(code) {
 	const out = [];
 	importRE.lastIndex = 0;
 	let m;
@@ -548,7 +560,7 @@ async function replaceCSSImports(code, sourceFile, root, css) {
 
 function eventChunkImports(code, sourceFile, sourceDir) {
 	return code.replace(
-		/((?:from\s+|import\s*\())(['"])(\.\.?\/[^'"]+)\2/g,
+		/((?:from\s*|import\s*\())(['"])(\.\.?\/[^'"]+)\2/g,
 		(m, lead, q, spec) => {
 			let target = path.resolve(path.dirname(sourceFile), spec);
 			if (/\.(?:jsx|tsx|ts)$/i.test(target)) {

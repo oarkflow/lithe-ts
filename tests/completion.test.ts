@@ -17,7 +17,7 @@ import { edgeAdapterMatrix } from '../src/server/edge.ts';
 import { createMemoryNativeDriver, createNativeRenderer } from '../src/interop/native.ts';
 import { h } from '../src/dom/vnode.ts';
 import { server, handleServerFunction } from '../src/server/rpc.ts';
-import { buildProject } from '../tools/build.ts';
+import { buildProject, dependencySpecs } from '../tools/build.ts';
 
 test('V8-backed JavaScript validation accepts full module grammar and reports syntax locations', () => {
 	const good = validateJavaScript(`export class Box { #x=1; static { this.ready=true } value=()=>this.#x }\nawait Promise.resolve();`, { filename: 'full.js' });
@@ -99,6 +99,27 @@ test('production chunk reachability keeps event-symbol modules and prunes unreac
 		await fs.access(path.join(out, 'src', 'events.js')); await assert.rejects(fs.access(path.join(out, 'src', 'unused.js')));
 		const main = await fs.readFile(path.join(out, 'src', 'main.js'), 'utf8'); assert.match(main, /eventSymbol\("\/src\/events\.js"/);
 	} finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+// Regression test for a shipped bug: importRE required `\s+` (mandatory
+// whitespace) directly after `import`/`export` and around `from`, which
+// never matches already-minified code — exactly what
+// node_modules/@oarkflow/lithe ships (tools/build-library.ts minifies the
+// published runtime). A framework file only reachable *transitively*
+// through another framework file's own import statement (not referenced by
+// path anywhere in the consumer's own code) was silently dropped from the
+// build, leaving a dangling import at runtime (e.g. `getOwner is not a
+// function`) for any name that module needed. dependencySpecs must find
+// every import regardless of spacing.
+test('dependencySpecs finds imports in both normally-spaced and fully-minified (zero-whitespace) source', () => {
+	const spaced = `import { schedule } from './scheduler.js';\nimport { getOwner, onCleanup } from './owner.js';\nexport * from './reexport.js';\n`;
+	const minified = `import{schedule}from'./scheduler.js';\nimport{getOwner,onCleanup}from'./owner.js';\nexport*from'./reexport.js';\n`;
+	for (const code of [spaced, minified]) {
+		const specs = dependencySpecs(code).map(d => d.spec);
+		assert.ok(specs.includes('./scheduler.js'), `missing ./scheduler.js in: ${JSON.stringify(code)}`);
+		assert.ok(specs.includes('./owner.js'), `missing ./owner.js in: ${JSON.stringify(code)}`);
+		assert.ok(specs.includes('./reexport.js'), `missing re-exported ./reexport.js in: ${JSON.stringify(code)}`);
+	}
 });
 
 test('production single bundle mode emits one static app entry', async () => {

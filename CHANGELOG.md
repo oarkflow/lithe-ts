@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Critical build fix: tree-shaking silently dropped framework modules, breaking every consumer's production build
+
+`tools/build.ts`'s `importRE` (used to discover which `@oarkflow/lithe`
+framework files are reachable when a consuming app runs `lithe build`)
+required mandatory whitespace directly after `import`/`export` and around
+`from`. The published package ships pre-minified `.js`
+(`tools/build-library.ts`), so a real framework file reads e.g.
+`import{schedule}from'./scheduler.js';` — zero spaces. The regex never
+matched that syntax, so any framework module only reachable *transitively*
+through another framework file's own import (not referenced by path
+anywhere in the consumer's own code) was silently dropped from the build's
+reachability graph and never emitted, while the importing file's own
+(now-dangling) import statement remained — producing runtime errors like
+`getOwner is not a function` in any tree-shaken production build.
+
+**Confirmed pre-existing since 1.1.3** (reproduced identically by installing
+1.1.3 fresh and running `lithe build` on a minimal app) — not introduced by
+the performance pass above, but broken in every published version to date
+and affecting every consumer who runs a production build, regardless of
+which version they depend on, since the bug lives in the shipped build
+tool itself.
+
+Fixed: every whitespace assertion in the affected regexes
+(`tools/build.ts`'s `importRE`/`eventChunkImports`,
+`tools/build-library.ts`'s `rewriteBuiltImports`) that doesn't correspond
+to a syntactically-mandatory space (a default import's identifier still
+requires one, and can never be minified away, so that case loses no
+matches) now tolerates zero whitespace. Verified end-to-end: installed the
+published package fresh, built a minimal app before and after the fix —
+`core/owner.js`/`core/scheduler.js`/`core/internal.js` missing before,
+present and working after (`mount()`/`signal()` exercised in a real DOM).
+Added a regression test (`dependencySpecs finds imports in both
+normally-spaced and fully-minified source`, `tests/completion.test.ts`) —
+there was no prior coverage for minified-syntax import detection, which is
+how this shipped undetected across three published versions.
+
 ### Performance pass: reactive core, list growth, hydration correctness — plus a crash found and fixed by real-browser verification
 
 A perf-focused audit (4 parallel agents over the reactive core, DOM
