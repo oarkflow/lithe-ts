@@ -437,6 +437,31 @@ test('compiled native subtrees patch dynamic text and attributes after cloning',
 	assert.equal(root.querySelector('b')!.textContent, 'two');
 });
 
+test('compiled template resolves an attribute-bearing element correctly when a sibling content marker mounts before it', async t => {
+	// Regression test: markerPaths/attributePaths are resolved against the
+	// still-pristine cloned fragment in one pass, before any binding mounts
+	// anything — resolving and mounting interleaved (as an earlier version
+	// did) let an EARLIER sibling's content-binding mount shift the forward
+	// index recorded for a LATER sibling's attribute element (or vice
+	// versa), silently resolving to the wrong node — here, the attribute
+	// would never get applied at all.
+	const window = await withDOM(t);
+	if (!window) return;
+	const [{ mount, compiledTemplate }, { signal }] = await Promise.all([
+		import('../src/dom/dom.ts'),
+		import('../src/core/reactive.ts')
+	]);
+	const active = signal(false);
+	const label = signal('REACTIVE');
+	const root = document.createElement('div');
+	mount(root, compiledTemplate('<div><b data-lithe-a0="">static</b><!--l:0--></div>', [() => label.value], [['class', () => active.value ? 'on' : 'off']]));
+	assert.equal(root.querySelector('b')!.textContent, 'static');
+	assert.equal(root.querySelector('b')!.className, 'off');
+	assert.match(root.textContent!, /REACTIVE/);
+	active.value = true;
+	assert.equal(root.querySelector('b')!.className, 'on');
+});
+
 test('an element with several reactive attribute bindings shares one effect and still updates every binding independently', async t => {
 	const window = await withDOM(t);
 	if (!window) return;

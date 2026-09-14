@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Critical rendering fix: sibling marker slots after the first one silently failed to mount
+
+`compiledTemplate`'s marker-path resolution (`src/dom/dom.ts`) recorded
+each interpolation slot's position as a *forward* index from the start of
+its parent's `childNodes` at template-parse time, then replayed that same
+index later to find the slot in the live, mutating DOM. Mounting any
+earlier sibling slot inserts nodes before its marker comment, which shifts
+the `childNodes` index of every marker that comes after it in the same
+parent. The forward index recorded at parse time goes stale as soon as
+that happens, so `__resolveMarkerPath` walks into the wrong node (often a
+comment with no children) and returns `null` — silently skipping the
+mount for that slot. No error was thrown.
+
+This broke any `compiledTemplate` with two or more sibling interpolations
+under a shared ancestor as soon as the first one mounted more than
+nothing — e.g. a shell component like `<Sidebar/>{header}<main>{children}</main>`
+would render `Sidebar` and drop `header` and `children` with the page
+otherwise looking empty.
+
+First fix attempted (and caught in review before shipping): recording
+marker/attribute paths as distance-from-the-end indices instead of
+forward ones. That's correct *within* the content-binding loop alone, but
+`__mountAny`'s compiled-template branch resolves and mounts all content
+bindings in one pass, then resolves and wires all attribute bindings in a
+*separate*, later pass — so an attribute-bearing element positioned
+before a content marker in the same parent would still be resolved
+against a tree the content pass had already mutated, landing on the
+wrong node (verified with a live repro: the attribute silently never got
+applied). Distance-from-the-end doesn't help across two passes that run
+at different times.
+
+Fixed properly: every marker and attribute path is now resolved against
+the still-pristine cloned fragment in one pass, *before* anything mounts
+or mutates it — content mounting and attribute wiring only start
+afterward, using the already-resolved node references. Since resolution
+never happens against a partially-mutated tree, plain forward indices
+are correct again and the distance-from-the-end scheme was reverted.
+Regression test added (`tests/rendering.test.ts`) covering the specific
+shape that broke: an attribute-bearing element followed by a sibling
+content marker in the same parent.
+
 ### Critical build fix: tree-shaking silently dropped framework modules, breaking every consumer's production build
 
 `tools/build.ts`'s `importRE` (used to discover which `@oarkflow/lithe`

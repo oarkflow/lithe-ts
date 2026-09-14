@@ -60,6 +60,15 @@ export function __templateRecipe(html: string, withMarkers: boolean) {
     if (withMarkers) {
         markerPaths = new Map();
         attributePaths = new Map();
+        // Paths are plain forward child-node indices, resolved against the
+        // cloned fragment BEFORE any binding has mounted anything into it
+        // (see __mountAny's compiled-template branch: every marker/attribute
+        // path is resolved in one pass over the still-pristine clone, and
+        // only then does a second pass perform the actual mounting/wiring).
+        // An index recorded here would go stale the moment an earlier
+        // sibling's content got inserted before its own marker — resolving
+        // everything first, before any mutation, sidesteps that entirely
+        // rather than trying to track a moving target.
         const walk = (node: any, path: number[]) => {
             const children = node.childNodes;
             for (let i = 0; i < children.length; i++) {
@@ -498,17 +507,37 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
         const recipe = __templateRecipe(value.html, true);
         const frag = recipe.template.content.cloneNode(true);
         const nodes = Array.from(frag.childNodes);
+        // Resolve every marker/attribute path against the still-pristine
+        // clone FIRST, before any of them mount/mutate anything — only then
+        // start mounting, using the already-resolved node references. If
+        // resolution and mutation were interleaved (resolve marker i, mount
+        // it, resolve marker i+1, ...), mounting one binding's content
+        // shifts every subsequent forward-index path in the same parent —
+        // and critically, that's not fixable by ordering the two loops below
+        // more cleverly either: an attribute-bearing element that comes
+        // before a content marker in the same parent would still be
+        // resolved against a tree the (already-run) content loop had
+        // already mutated. Resolving everything up front against one
+        // unmutated snapshot sidesteps the ordering question entirely.
+        const markers = new Array(value.bindings.length);
         for (let i = 0; i < value.bindings.length; i++) {
             const path = recipe.markerPaths!.get(i);
-            const marker = path && __resolveMarkerPath(frag, path);
+            markers[i] = path && __resolveMarkerPath(frag, path);
+        }
+        const attrElements = new Array(value.attributes?.length || 0);
+        for (let i = 0; i < attrElements.length; i++) {
+            const path = recipe.attributePaths!.get(i);
+            attrElements[i] = path && __resolveMarkerPath(frag, path);
+        }
+        for (let i = 0; i < value.bindings.length; i++) {
+            const marker = markers[i];
             if (!marker) continue;
             __mountChild(marker.parentNode, value.bindings[i], marker, options, marker);
         }
-        for (let i = 0; i < (value.attributes?.length || 0); i++) {
-            const binding = value.attributes[i];
-            const path = recipe.attributePaths!.get(i);
-            const element = path && __resolveMarkerPath(frag, path);
+        for (let i = 0; i < attrElements.length; i++) {
+            const element = attrElements[i];
             if (!element) continue;
+            const binding = value.attributes[i];
             let previous: any;
             dynamicEffect(binding[1], next => {
                 __setAttribute(element, binding[0], next, previous, options);
