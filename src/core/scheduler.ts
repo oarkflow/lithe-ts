@@ -1,6 +1,12 @@
 export type Priority = 'sync' | 'userBlocking' | 'normal' | 'transition' | 'background' | 'idle';
 type Task = () => unknown;
-const queues: Record<Priority, Task[]> = {
+// Scheduled tasks are boxed so cancellation can tombstone a slot in O(1)
+// (`slot.task = null`) instead of an O(n) indexOf+splice into a possibly-large
+// pending queue, and so draining a full queue (runQueue) can walk the array
+// once with a read index instead of Array.prototype.shift()'s per-call
+// re-indexing — shift() made draining N pending tasks in one flush O(n^2).
+type Slot = { task: Task | null };
+const queues: Record<Priority, Slot[]> = {
     sync: [],
     userBlocking: [],
     normal: [],
@@ -15,8 +21,15 @@ const enqueueMicrotask: (fn: () => void) => void = globalThis.queueMicrotask ? q
 };
 function runQueue(name: Priority): void {
     const queue = queues[name];
-    while (queue.length) {
-        const task = queue.shift()!;
+    let i = 0;
+    // The loop condition rereads queue.length on every iteration, so tasks
+    // scheduled into this same queue by a task that's currently running are
+    // still picked up within this drain (matching the old shift()-based
+    // behavior) without needing to re-scan from the front each time.
+    while (i < queue.length) {
+        const slot = queue[i++];
+        const task = slot.task;
+        if (!task) continue; // cancelled after being queued
         try {
             task();
         } catch (error) {
@@ -25,6 +38,7 @@ function runQueue(name: Priority): void {
             });
         }
     }
+    queue.length = 0;
 }
 function flush(): void {
     if (flushing) return;
@@ -52,12 +66,11 @@ function requestFlush(): void {
 }
 export function schedule(task: Task, priority: Priority = 'normal'): () => void {
     if (!queues[priority]) priority = 'normal';
-    queues[priority].push(task);
+    const slot: Slot = { task };
+    queues[priority].push(slot);
     requestFlush();
     return () => {
-        const q = queues[priority];
-        const i = q.indexOf(task);
-        if (i >= 0) q.splice(i, 1);
+        slot.task = null;
     };
 }
 export function flushSync(task?: () => unknown): void {

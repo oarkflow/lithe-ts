@@ -45,7 +45,7 @@ const templateRecipeCache = new WeakMap<any, Map<string, {
     markerPaths: Map<number, number[]> | null;
     attributePaths: Map<number, number[]> | null;
 }>>();
-function templateRecipe(html: string, withMarkers: boolean) {
+export function __templateRecipe(html: string, withMarkers: boolean) {
     let perDoc = templateRecipeCache.get(document);
     if (!perDoc) {
         perDoc = new Map();
@@ -90,7 +90,7 @@ function templateRecipe(html: string, withMarkers: boolean) {
     perDoc.set(html, recipe);
     return recipe;
 }
-function resolveMarkerPath(fragment: any, path: number[]) {
+export function __resolveMarkerPath(fragment: any, path: number[]) {
     let node = fragment;
     for (let i = 0; i < path.length; i++) {
         node = node?.childNodes[path[i]];
@@ -288,6 +288,13 @@ function setupBinding(el: any, key: string, target: any) {
     });
     const event = prop === 'value' ? 'input' : 'change';
     const listener = () => target.value = el[prop];
+    // NOTE: this intentionally stays a direct listener rather than routing
+    // through setDelegatedEvent's single-handler-per-(element,type) slot —
+    // an element can legitimately have both `bind:value` and a user-supplied
+    // `onInput` prop at once, and delegation has no way to compose two
+    // handlers into that one slot without one silently overwriting the
+    // other. The per-node listener cost only matters for very large
+    // editable grids; correctness here matters more.
     el.addEventListener(event, listener);
     onCleanup(() => {
         el.removeEventListener(event, listener);
@@ -488,19 +495,19 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
         return mountNativeElement(parent, value.type, value.props, value.children, before, options);
     }
     if (value.__litheCompiledTemplate) {
-        const recipe = templateRecipe(value.html, true);
+        const recipe = __templateRecipe(value.html, true);
         const frag = recipe.template.content.cloneNode(true);
         const nodes = Array.from(frag.childNodes);
         for (let i = 0; i < value.bindings.length; i++) {
             const path = recipe.markerPaths!.get(i);
-            const marker = path && resolveMarkerPath(frag, path);
+            const marker = path && __resolveMarkerPath(frag, path);
             if (!marker) continue;
             __mountChild(marker.parentNode, value.bindings[i], marker, options, marker);
         }
         for (let i = 0; i < (value.attributes?.length || 0); i++) {
             const binding = value.attributes[i];
             const path = recipe.attributePaths!.get(i);
-            const element = path && resolveMarkerPath(frag, path);
+            const element = path && __resolveMarkerPath(frag, path);
             if (!element) continue;
             let previous: any;
             dynamicEffect(binding[1], next => {
@@ -514,7 +521,7 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
         };
     }
     if (value.__litheStaticTemplate) {
-        const recipe = templateRecipe(value.html, false);
+        const recipe = __templateRecipe(value.html, false);
         const frag = recipe.template.content.cloneNode(true);
         const nodes = Array.from(frag.childNodes);
         parent.insertBefore(frag, before);
@@ -525,14 +532,28 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
     if (Array.isArray(value)) {
         const nodes: any[] = [];
         const len = value.length;
+        if (len === 0) return { nodes };
+        if (len === 1) {
+            const res = __mountChild(parent, value[0], before, options);
+            if (res && res.nodes) for (let j = 0; j < res.nodes.length; j++) nodes.push(res.nodes[j]);
+            return { nodes };
+        }
+        // A bare array of >1 children mounted directly into an already-live
+        // parent (e.g. a component returning `items.map(...)` without
+        // wrapping in <For>) previously did one insertBefore per child
+        // against the live DOM. Building into a detached fragment first and
+        // inserting once mirrors what <For>'s own new-row insertion and the
+        // dynamic-child wrapper below already do for the identical reason.
+        const frag = document.createDocumentFragment();
         for (let i = 0; i < len; i++) {
-            const res = __mountChild(parent, value[i], before, options);
+            const res = __mountChild(frag, value[i], null, options);
             if (res && res.nodes) {
                 for (let j = 0; j < res.nodes.length; j++) {
                     nodes.push(res.nodes[j]);
                 }
             }
         }
+        parent.insertBefore(frag, before);
         return {
             nodes
         };
@@ -562,35 +583,47 @@ export function __mountAny(parent: any, value: any, before: any, options: any = 
     }
     if (vnode.type === Fragment) {
         const nodes: any[] = [];
-        for (let i = 0; i < vnode.children.length; i++) {
-            const res = __mountChild(parent, vnode.children[i], before, options);
+        const len = vnode.children.length;
+        if (len === 0) return { nodes };
+        if (len === 1) {
+            const res = __mountChild(parent, vnode.children[0], before, options);
+            if (res && res.nodes) for (let j = 0; j < res.nodes.length; j++) nodes.push(res.nodes[j]);
+            return { nodes };
+        }
+        // Same fragment-batching reasoning as the plain-array branch above.
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < len; i++) {
+            const res = __mountChild(frag, vnode.children[i], null, options);
             if (res && res.nodes) {
                 for (let j = 0; j < res.nodes.length; j++) nodes.push(res.nodes[j]);
             }
         }
+        parent.insertBefore(frag, before);
         return {
             nodes
         };
     }
     if (typeof vnode.type === 'function') {
         if ((vnode.type as any).__litheMount) {
+            vnode.props.children = vnode.children;
             return (vnode.type as any).__litheMount({
                 parent,
                 before,
-                props: {
-                    ...vnode.props,
-                    children: vnode.children
-                },
+                props: vnode.props,
                 children: vnode.children,
                 options,
                 mountAny: __mountAny,
                 mountChild: __mountChild
             });
         }
-        const scope = createScope(() => (vnode.type as any)({
-            ...vnode.props,
-            children: vnode.children
-        }));
+        // vnode.props is exclusively owned by this vnode (h() builds a fresh
+        // object per call, never shared/reused across mounts), so attaching
+        // `children` onto it directly is safe and saves the extra spread
+        // allocation a copy would cost on every single component mount —
+        // this is on the hottest allocation path in the framework (every
+        // <For> row that renders a component pays it once per row).
+        vnode.props.children = vnode.children;
+        const scope = createScope(() => (vnode.type as any)(vnode.props));
         const mounted = withOwner(scope.owner, () => __mountChild(parent, scope.value, before, options));
         onCleanup(scope.dispose);
         return mounted;

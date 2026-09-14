@@ -94,13 +94,14 @@ function moveRowBefore(parent, row, anchor) {
     for (let i = 0; i < row.nodes.length; i++) parent.insertBefore(row.nodes[i], anchor);
 }
 // Avoid constructing Maps, Sets, an LIS and several N-element scratch arrays
-// for the two tiny edits that dominate interactive keyed lists. Identity is
+// for the tiny edits that dominate interactive keyed lists. Identity is
 // deliberately required: replacing an item object must still rebuild its
 // closure-backed view with the new object.
-function fastStructuralEdit(state, items, rawItems, parent, end) {
+function fastStructuralEdit(state, items, rawItems, parent, end, renderer, props, options, mountAny) {
     const rows = state.rows;
     if (!rows.length || !state.byKey) return false;
     const mutation = items[ARRAY_MUTATION];
+    if (items.length > rows.length) return tryAppend(state, items, rawItems, parent, end, renderer, props, options, mountAny);
     if (items.length === rows.length) {
         if (mutation?.method === 'set' && mutation.previousLength === rows.length && mutation.indices?.length === 2) {
             const left = mutation.indices[0], right = mutation.indices[1];
@@ -153,6 +154,53 @@ function fastStructuralEdit(state, items, rawItems, parent, end) {
         return true;
     }
     if (items.length !== rows.length - 1) return false;
+    return tryRemoveOne(state, items, rawItems, parent, end, mutation);
+}
+// Pure append — every existing row is untouched and new items were only
+// added at the end (the common "load more"/infinite-scroll/live-feed-append
+// case). Without this, the general path in syncForRows rebuilds oldByKey and
+// re-runs keyFor()/bucketKey() for every UNCHANGED existing row too, not
+// just the new ones — O(existing + new) Map/hashing work to append even a
+// single row onto a list of thousands. This mirrors the general loop's own
+// per-new-row construction exactly (same row shape, same renderScope call,
+// same keyFor/bucketKey/occurrence bookkeeping against the shared byKey map)
+// so it can't drift out of sync with how a row is normally built — it just
+// skips re-deriving information about rows that provably didn't change.
+function tryAppend(state, items, rawItems, parent, end, renderer, props, options, mountAny) {
+    const rows = state.rows;
+    if (!rows.length || !state.byKey || items.length <= rows.length) return false;
+    for (let i = 0; i < rows.length; i++) {
+        if (itemAt(items, rawItems, i) !== rows[i].item) return false;
+    }
+    const byKey = state.byKey;
+    const newRows = new Array(items.length - rows.length);
+    const fragment = document.createDocumentFragment();
+    for (let i = rows.length; i < items.length; i++) {
+        const currentItem = itemAt(items, rawItems, i);
+        const base = keyFor(currentItem, i, props.key);
+        const bucketId = bucketKey(base);
+        let bucket = byKey.get(bucketId);
+        const occ = bucket ? bucket.length : 0;
+        const index = indexSignal(i);
+        const built = renderScope(mountAny, renderer(currentItem, index), options);
+        const row = {
+            ...built,
+            base,
+            occ,
+            item: currentItem,
+            index
+        };
+        fragment.appendChild(built.fragment);
+        if (!bucket) byKey.set(bucketId, bucket = []);
+        bucket.push(row);
+        newRows[i - rows.length] = row;
+    }
+    parent.insertBefore(fragment, end);
+    state.rows = rows.concat(newRows);
+    return true;
+}
+function tryRemoveOne(state, items, rawItems, parent, end, mutation) {
+    const rows = state.rows;
     let removed = -1;
     if (mutation?.method === 'splice' && mutation.previousLength === rows.length && mutation.args.length >= 2 && mutation.args.length === 2) {
         const rawStart = Number(mutation.args[0]) || 0;
@@ -208,7 +256,7 @@ function syncForRows(state, items, parent, end, renderer, props, options, mountA
         removeRow(state.fallback);
         state.fallback = null;
     }
-    if (fastStructuralEdit(state, items, rawItems, parent, end)) return;
+    if (fastStructuralEdit(state, items, rawItems, parent, end, renderer, props, options, mountAny)) return;
     // `state.byKey` is the keyed lookup this same pass built last time it
     // ran, kept around instead of rebuilt from `state.rows` on every call.
     // Rebuilding it from scratch here was an O(previous row count) Map
@@ -364,8 +412,18 @@ For.__litheMount = ({
         byKey: null,
         fallback: null
     };
+    // Re-derive the working parent from `end` (a real, permanent node) on
+    // every run instead of closing over the `parent` argument directly.
+    // `parent` can be a throwaway DocumentFragment a caller mounted this
+    // component into (e.g. __mountChild's dynamic-child branch, which
+    // builds offline into a fragment and then moves its contents — `end`
+    // included — into the real container in one insertBefore call). `end`
+    // moves right along with everything else, so `end.parentNode` always
+    // reflects the true current container; the cached `parent` closure
+    // variable would keep pointing at the now-empty, orphaned fragment and
+    // every later insertBefore against it would throw.
     effect(() => {
-        syncForRows(state, read(props.each) || [], parent, end, renderer, props, options, mountAny);
+        syncForRows(state, read(props.each) || [], end.parentNode, end, renderer, props, options, mountAny);
     }, {
         sync: true
     });
@@ -440,8 +498,12 @@ For.__litheClaim = ({
     // keyed-bucket matching finds and reuses every claimed row rather than
     // building fresh ones — it only ever behaves as a genuine update from
     // the second real change onward.
+    // See the identical comment in For.__litheMount: re-derive from `end`
+    // rather than closing over `parent`, which claim() call sites always
+    // pass as the real live DOM parent today, but this stays correct even
+    // if that ever stops being true.
     effect(() => {
-        syncForRows(state, read(props.each) || [], parent, end, renderer, props, options, mountAny);
+        syncForRows(state, read(props.each) || [], end.parentNode, end, renderer, props, options, mountAny);
     }, {
         sync: true
     });
@@ -513,8 +575,9 @@ Index.__litheMount = ({
         rows: [],
         fallback: null
     };
+    // See the identical comment in For.__litheMount.
     effect(() => {
-        syncIndexRows(state, read(props.each) || [], parent, end, renderer, props, options, mountAny);
+        syncIndexRows(state, read(props.each) || [], end.parentNode, end, renderer, props, options, mountAny);
     }, {
         sync: true
     });
@@ -576,7 +639,7 @@ Index.__litheClaim = ({
     // holds (a no-op), so it only behaves as a real update from the next
     // genuine change onward.
     effect(() => {
-        syncIndexRows(state, read(props.each) || [], parent, end, renderer, props, options, mountAny);
+        syncIndexRows(state, read(props.each) || [], end.parentNode, end, renderer, props, options, mountAny);
     }, {
         sync: true
     });
@@ -686,7 +749,15 @@ Island.__litheMount = ({
         if (disposed || scope) return;
         const fragment = document.createDocumentFragment();
         scope = createScope(() => mountAny(fragment, props.children, null, options));
-        parent.insertBefore(fragment, placeholder);
+        // Re-derive from `placeholder` rather than the closed-over `parent`
+        // argument — activate() can fire well after this __litheMount call
+        // returns (microtask/idle-callback/intersection/media-query
+        // policies), by which point a caller that mounted this Island into
+        // a throwaway fragment (see the identical reasoning in
+        // For.__litheMount) may already have moved `placeholder` into the
+        // real, live container. `placeholder.parentNode` always reflects
+        // wherever it actually ended up; `parent` would not.
+        placeholder.parentNode.insertBefore(fragment, placeholder);
         placeholder.remove();
     };
     const policy = props.when || props.policy || 'load';
@@ -834,7 +905,7 @@ function suspenseController(pending) {
         }
     };
 }
-function suspenseToggle(parent, contentNodes, contentMarker, pending, props, options, mountAny) {
+function suspenseToggle(contentNodes, contentMarker, pending, props, options, mountAny) {
     let contentAttached = true,
         fallbackBuilt = null;
     const removeFallback = () => {
@@ -843,7 +914,13 @@ function suspenseToggle(parent, contentNodes, contentMarker, pending, props, opt
         for (const n of fallbackBuilt.nodes) n.remove();
         fallbackBuilt = null;
     };
+    // Re-derived from `contentMarker` (a real, permanent node inserted
+    // synchronously before this toggle is ever set up) rather than a
+    // closed-over `parent` argument — see the identical reasoning in
+    // For.__litheMount for why a cached `parent` can go stale if this
+    // component was mounted into a throwaway fragment.
     const dispose = effect(() => {
+        const parent = contentMarker.parentNode;
         if (pending.value > 0) {
             if (contentAttached) {
                 for (const n of contentNodes) n.remove();
@@ -889,7 +966,7 @@ Suspense.__litheMount = ({
     const contentMarker = document.createComment('lithe:suspense');
     parent.insertBefore(contentMarker, before);
     parent.insertBefore(content.fragment, contentMarker);
-    const disposeToggle = suspenseToggle(parent, content.nodes, contentMarker, pending, props, options, mountAny);
+    const disposeToggle = suspenseToggle(content.nodes, contentMarker, pending, props, options, mountAny);
     onCleanup(() => {
         disposeToggle();
         content.scope.dispose();
@@ -919,7 +996,7 @@ Suspense.__litheClaim = ({
     const contentNodes = claimed.nodes;
     const contentMarker = document.createComment('lithe:suspense');
     parent.insertBefore(contentMarker, claimed.next);
-    const disposeToggle = suspenseToggle(parent, contentNodes, contentMarker, pending, props, options, mountAny);
+    const disposeToggle = suspenseToggle(contentNodes, contentMarker, pending, props, options, mountAny);
     onCleanup(() => {
         disposeToggle();
         scope.dispose();

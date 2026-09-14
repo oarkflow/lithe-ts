@@ -1,9 +1,19 @@
 import crypto from 'node:crypto';
+// Escaping is on the hottest SSR path (called for essentially every text node
+// and attribute value). Five sequential replaceAll() passes each rescan the
+// whole string; a single regex pass with a lookup table does the same work
+// in one scan, and — since String.prototype.replace returns the original
+// string unchanged when nothing matches — costs nothing extra for the common
+// case of plain text with no special characters.
+const HTML_ESCAPE_RE = /[&<>"']/g;
+const HTML_ESCAPE_MAP: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export function escapeHTML(value) {
-    return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+    return String(value).replace(HTML_ESCAPE_RE, ch => HTML_ESCAPE_MAP[ch]);
 }
+const JSON_ESCAPE_RE = /[<>&\u2028\u2029]/g;
+const JSON_ESCAPE_MAP: Record<string, string> = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026', '\u2028': '\\u2028', '\u2029': '\\u2029' };
 export function safeJSON(value) {
-    return JSON.stringify(value).replaceAll('<', '\\u003c').replaceAll('>', '\\u003e').replaceAll('&', '\\u0026').replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
+    return JSON.stringify(value).replace(JSON_ESCAPE_RE, ch => JSON_ESCAPE_MAP[ch]);
 }
 export function createCSRF(secret = crypto.randomBytes(32).toString('hex')) {
     return {

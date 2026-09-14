@@ -2,6 +2,106 @@
 
 ## Unreleased
 
+### Performance pass: reactive core, list growth, hydration correctness — plus a crash found and fixed by real-browser verification
+
+A perf-focused audit (4 parallel agents over the reactive core, DOM
+reconciliation, compiler, and SSR/hydration) found and fixed real
+algorithmic issues, then a real-browser run (not just happy-dom/unit tests)
+caught a genuine crash before it shipped — see below.
+
+- **`core/reactive.ts`**: `Observer`/`ComputedImpl` deduped tracked
+  dependencies via `Array.prototype.indexOf` — O(n) per tracked read, O(n^2)
+  per evaluation for any effect/computed with many dependencies. Now O(1)
+  via a `Set` mirror. `Observer.run()` also no longer allocates its
+  invoke/cleanup-adder closures on every re-run (hoisted to the
+  constructor), and `signal()`/`computed()` no longer force a `{}`
+  allocation for the common no-options call.
+- **`core/scheduler.ts`**: draining a flush queue used
+  `Array.prototype.shift()`, which re-indexes the array on every call —
+  O(n^2) for a batch of N pending effects. Now an O(n) index-based drain
+  with O(1) tombstone cancellation instead of `indexOf`+`splice`.
+- **`core/store.ts`**: `store.patch` computed a cache key by walking the
+  whole source tree, then re-descended from the target root once per leaf
+  — O(depth * leafCount) through the reactive proxy. Replaced with a
+  single-pass recursive merge that visits each node once.
+- **`server/ssr.ts`**: `ownerTree()` (walks + clones a component's owner/
+  context subtree) ran on every function-component render even when
+  `resume` wasn't requested — pure discarded work. Now skipped entirely
+  when resume is off. `escapeHTML`/`safeJSON` did 5 sequential
+  `replaceAll` passes each; now one regex pass.
+- **`dom/control.ts`, `<For>`**: added a pure-append fast path — appending
+  new items onto an unchanged list (infinite scroll, live feeds, "load
+  more") previously fell through to the general Map+LIS keyed diff, paying
+  full reconciliation cost for rows that didn't change at all. Measured:
+  500 sequential appends onto a 2,000-row list, 621ms -> 47ms (13x).
+- **`dom/hydrate.ts`**: attribute-marker resolution for compiled templates
+  re-scanned every descendant element (`querySelectorAll('*')` +
+  `hasAttribute` per binding) on every hydrate call; now reuses the same
+  cached template-shape index `dom.ts` already builds for CSR mounting,
+  with a safe fallback when the cached shape can't be trusted.
+- **`dom/dom.ts`, `dom/vnode.ts`**: removed a redundant props-object
+  allocation on every component mount (`{...vnode.props, children}` when
+  `vnode.props` was already the final, uniquely-owned object), hoisted a
+  per-call closure out of `h()`, and added fragment-batching for a bare
+  array/Fragment of >1 children mounted directly into an already-attached
+  parent (was one `insertBefore` per child).
+- **`compiler/jsx.ts`**: a component tag nested inside a native element
+  used to disqualify the *whole* enclosing subtree from template-cloning
+  (`<div><Child/><span>hi</span></div>` fell back to `createElement` +
+  separate clones per child). The compiler now treats a nested component
+  tag as a binding marker, the same way it already treats a `{expr}`
+  child, so the common "native wrapper around component children" shape
+  compiles to one cloneable template.
+
+**Hydration correctness fix, found while verifying the above**: compiled-
+template *content* bindings (`{expr}` children, not attributes) were
+silently never re-wired for reactivity after `hydrate()` — the code was
+searching for `<!--l:s:N-->`/`<!--l:e:N-->` marker pairs that
+`renderCompiledTemplate` never actually emits for ordinary bindings (only
+named-signal resume markers use that format, on an unrelated page-wide
+counter, and only coincidentally matched in trivial single-binding pages).
+Fixed by walking the cached offline template shape in lockstep with the
+live SSR DOM and handing each binding's position to `setupDynamicRegion`
+— the same structural `claim()` mechanism ordinary dynamic children
+already use for hydration — instead of any marker protocol. This also
+surfaced and fixed two related SSR text-coalescing bugs (one of them
+**pre-existing in the generic, non-compiled-template hydration path
+too**): adjacent static/dynamic text merging into one Text node with no
+recoverable boundary (fixed by extending the existing `joinRenderedSiblings`
+separator technique into `renderCompiledTemplate`), and a null/false
+conditional child silently letting its *non-adjacent* static neighbors
+merge (fixed in `joinRenderedSiblings` itself by tracking the last
+non-empty sibling instead of strictly the previous one, closing the gap
+for both hydration paths at once).
+
+**Crash found and fixed by real-browser verification, not caught by the
+test suite or happy-dom**: wrapping a component as a compiled-template
+binding (the fix above) routes it through `__mountChild`'s dynamic-child
+branch, which mounts into a throwaway `DocumentFragment` before moving its
+contents into the real container in one `insertBefore` call. `For`/
+`Index`/`Suspense`'s (and `Island`'s deferred-activation) internal
+reactive effects closed over that fragment as their working `parent` —
+correct for the initial synchronous mount, but stale forever after, since
+the fragment is discarded once its children move. Any later reactive
+update called `insertBefore` against a node that no longer contained its
+target, throwing `NotFoundError` in a real browser (happy-dom did not
+reproduce this). Confirmed as a pre-existing, general bug reachable by
+ordinary user code too — `{() => <For>...}` as an explicit dynamic child,
+with no compiled template involved — not something the compiler change
+introduced, just something it made much easier to hit. Fixed generally:
+`For`, `Index`, `Suspense`, and `Island` now re-derive their working
+parent from a stable marker node (`end.parentNode` /
+`contentMarker.parentNode` / `placeholder.parentNode`) on every run
+instead of trusting a closed-over `parent` argument that can go stale.
+Full real-browser benchmark suite re-verified green after the fix (no
+crash across 3 runs); real-browser numbers for this benchmark app were
+also **not** a broad win over React/Solid the way the happy-dom-only
+numbers first suggested for `create1k`/`update10th`/`selectOne`/
+`swapRows`/`removeOne`/`clearAll` — reported honestly rather than only the
+favorable happy-dom comparison, consistent with this project's existing
+"real browser, not the emulator" verification standard (see
+`benchmarks/browser-methodology.md`).
+
 ### Real browser-vs-React/Solid benchmark
 
 - Added `benchmarks/apps/` and rewrote `benchmarks/real-browser.ts`: real,

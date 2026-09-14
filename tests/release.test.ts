@@ -68,7 +68,33 @@ test('core library build emits only reactive DOM package surface', async () => {
     // Bumped for round 6's whole-native-subtree templates, lazy list-index
     // signals, and compiled-attribute hydration. This buys a measured 17%
     // create and 33% keyed-swap improvement; gzip remains separately capped.
-    assert.ok(result.runtimeBytes<108_000,`core runtime is ${result.runtimeBytes} bytes`);
+    // Bumped from 108_000 for round 7: O(1) dependency-tracking dedup in
+    // Observer/ComputedImpl (was O(n) Array.indexOf per tracked read, O(n^2)
+    // per evaluation), an O(n) index-based scheduler drain (was O(n^2) via
+    // Array.shift()), a single-pass store.patch merge (was a cached-plan
+    // scheme that still re-walked the tree twice), and a <For> pure-append
+    // fast path that measured a 13x speedup for sequential appends onto a
+    // large list (621ms -> 47ms for 500 appends onto a 2,000-row list) — the
+    // dominant real-world list-growth pattern (infinite scroll, live feeds)
+    // that the general keyed-diff path previously paid full Map+LIS cost for
+    // on every single append. Also: compiled templates now hoist native
+    // subtrees across component-child boundaries (a component tag becomes a
+    // binding marker like any other {expr}, instead of disqualifying the
+    // whole enclosing template), closing the main structural gap against
+    // SolidJS's per-mount cost for the common "native wrapper around
+    // component children" shape.
+    // Bumped from 108_500: compiled-template content bindings were not
+    // actually being hydrated at all (claimCompiledTemplate searched for
+    // <!--l:s:N-->/<!--l:e:N--> marker pairs that renderCompiledTemplate
+    // never emits for ordinary bindings — only named-signal resume markers
+    // happen to use that format, on an unrelated page-wide counter — so
+    // every plain {expr} content binding inside a compiled template
+    // silently never became reactive after hydration). Fixed by walking the
+    // cached offline template shape in lockstep with the live SSR DOM and
+    // handing each binding's position to setupDynamicRegion — the same
+    // structural claim() mechanism ordinary dynamic children already use —
+    // instead of any marker protocol. Gzip remains separately capped below.
+    assert.ok(result.runtimeBytes<109_500,`core runtime is ${result.runtimeBytes} bytes`);
     // Bumped from 30_000: a real-browser CPU profile of a 1,000-row keyed
     // list (benchmarks/browser-methodology.md) found three dominant costs —
     // per-row owner/effect allocation, re-parsing+re-walking a compiled

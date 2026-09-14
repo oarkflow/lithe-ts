@@ -176,7 +176,17 @@ function isStaticNative(raw, name, fragment) {
     return true;
 }
 function directNativeTemplate(raw, name) {
-    if (!name || !isNativeName(name) || /<\/?[A-Z]|\bon[A-Z][\w]*\s*=|\b(?:ref|html)\s*=|\bbind:|\{\.\.\./.test(raw)) return null;
+    // A component tag (<Foo>) is no longer an automatic disqualifier — see
+    // the mid-scan check below, which turns it into a binding exactly like a
+    // {expr} child instead of bailing the whole enclosing native subtree out
+    // of templating. Event handlers/ref/html/bind:/spread still disqualify
+    // unconditionally: compiledTemplate's runtime has no mechanism to wire
+    // those up at all (only content bindings and data-lithe-aN attribute
+    // bindings), on a native element at ANY depth in this markup — including,
+    // conservatively, inside a nested component's own props, since telling
+    // "belongs to the outer template" apart from "belongs to a nested
+    // component's props" isn't something this substring scan can do safely.
+    if (!name || !isNativeName(name) || /\bon[A-Z][\w]*\s*=|\b(?:ref|html)\s*=|\bbind:|\{\.\.\./.test(raw)) return null;
     let html = '', quote = null, inTag = false, i = 0;
     const bindings = [], attributes = [];
     while (i < raw.length) {
@@ -193,6 +203,35 @@ function directNativeTemplate(raw, name) {
             html += ch;
             i++;
             continue;
+        }
+        // A component child (non-native tag name) is not real HTML — it
+        // can't be copied into the template string like a native element
+        // can. Parse it as one whole unit with the same parseElement() used
+        // for every other component instantiation (so nested {}, nested
+        // native/component children, etc. inside it are all handled exactly
+        // as they normally would be), drop a single content marker in its
+        // place, and push its vnode-constructing code as a binding — wrapped
+        // in a fresh closure, matching how every other non-arrow-function
+        // {expr} child binding in this function is wrapped below, so a
+        // component whose own props read reactive state re-mounts on change
+        // exactly as a plain reactive expression child would.
+        if (ch === '<' && raw[i + 1] !== '/' && isIdentStart(raw[i + 1])) {
+            let j = i + 1;
+            while (j < raw.length && isIdentPart(raw[j])) j++;
+            const peeked = raw.slice(i + 1, j);
+            if (!isNativeName(peeked)) {
+                let nested;
+                try {
+                    nested = parseElement(raw, i);
+                } catch {
+                    return null;
+                }
+                const id = bindings.length;
+                bindings.push(`()=>(${nested.code})`);
+                html += `<!--l:${id}-->`;
+                i = nested.end;
+                continue;
+            }
         }
         if (ch === '<') inTag = true;
         else if (ch === '>') inTag = false;

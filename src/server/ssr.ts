@@ -18,9 +18,22 @@ const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input'
 // marker back out when walking children.
 function joinRenderedSiblings(parts) {
     let html = '';
+    // Comparing only immediate neighbors (parts[i-1] vs parts[i]) misses the
+    // case where a MIDDLE sibling renders to '' (a null/false conditional
+    // child, a common pattern): "before", "", "after" would then skip
+    // straight past the empty part and merge "before"+"after" into one Text
+    // node with no boundary between them at all — not just risking a
+    // *wrong* hydration match, but leaving claim() nothing to find a
+    // boundary on. Tracking the last NON-empty part (rather than strictly
+    // the previous one) closes that gap regardless of how many empty
+    // siblings sit in between, while staying identical to the old
+    // adjacent-pair check whenever there are none.
+    let lastNonEmpty = -1;
     for (let i = 0; i < parts.length; i++) {
-        if (i > 0 && parts[i - 1] !== '' && parts[i] !== '' && !parts[i - 1].endsWith('>') && !parts[i].startsWith('<')) html += '<!---->';
+        if (parts[i] === '') continue;
+        if (lastNonEmpty !== -1 && !parts[lastNonEmpty].endsWith('>') && !parts[i].startsWith('<')) html += '<!---->';
         html += parts[i];
+        lastNonEmpty = i;
     }
     return html;
 }
@@ -84,12 +97,35 @@ async function renderCompiledTemplate(value, ctx, renderer) {
         const binding = value.bindings[i],
             bound = typeof binding === 'function' ? binding() : binding,
             rendered = await renderer(bound, ctx);
-        // A string second argument to String.replace() still interprets
-        // "$$", "$&", "$`", "$'" as substitution patterns. `rendered` is
-        // dynamic/user-derived content that hasn't been vetted for those
-        // sequences (e.g. literal "$$" in ordinary text), so use a replacer
-        // function, which passes the replacement through verbatim.
-        html = html.replace(`<!--l:${i}-->`, () => rendered);
+        const marker = `<!--l:${i}-->`;
+        const at = html.indexOf(marker);
+        if (at === -1) continue;
+        const before = html.slice(0, at),
+            after = html.slice(at + marker.length);
+        // Same hazard joinRenderedSiblings guards against for array
+        // children: without a separator, this binding's rendered text can
+        // silently coalesce with adjacent static (or another binding's)
+        // text into one Text node when the HTML parser reads it back,
+        // leaving no way for hydration to tell where one ends and the next
+        // begins. claimTemplateContent (hydrate.ts) consumes these via the
+        // same skipTextSeparator already used for sibling children.
+        const textLikeBefore = before !== '' && !before.endsWith('>'),
+            textLikeAfter = after !== '' && !after.startsWith('<');
+        let insertion;
+        if (rendered === '') {
+            // Nothing rendered for this binding (e.g. a null/false
+            // conditional) — if removing it would let "before" and "after"
+            // merge into one Text node, a single placeholder comment
+            // preserves the boundary between them, the same gap
+            // joinRenderedSiblings closes by tracking the last non-empty
+            // sibling instead of strictly the previous one.
+            insertion = textLikeBefore && textLikeAfter ? '<!---->' : '';
+        } else {
+            const lead = textLikeBefore && !rendered.startsWith('<') ? '<!---->' : '';
+            const trail = !rendered.endsWith('>') && textLikeAfter ? '<!---->' : '';
+            insertion = lead + rendered + trail;
+        }
+        html = before + insertion + after;
     }
     return html;
 }
@@ -249,7 +285,12 @@ export async function renderToString(view, options = {}) {
             ...(options.resumeSignals || {})
         },
         resumeBindings: {},
-        resumeOwners: [],
+        // Only allocated when resumability is actually requested — ownerTree()
+        // walks and clones each component's owner/context subtree, which is
+        // pure discarded work on every function-component render otherwise.
+        // ctx.resumeOwners?.push(ownerTree(...)) below short-circuits the
+        // whole call (argument included) when this is null.
+        resumeOwners: options.resume ? [] : null,
         bindingSeq: 0,
         elementSeq: 0
     },
@@ -320,7 +361,9 @@ export async function* renderToStream(view, options = {}) {
             ...(options.resumeSignals || {})
         },
         resumeBindings: {},
-        resumeOwners: [],
+        // See renderToString: skip building an owner-tree payload nobody
+        // will read when resumability wasn't requested for this render.
+        resumeOwners: options.resume ? [] : null,
         bindingSeq: 0,
         elementSeq: 0
     },

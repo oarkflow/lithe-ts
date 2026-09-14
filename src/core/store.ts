@@ -73,98 +73,33 @@ function isMergeObject(value: any): boolean {
     if (value instanceof Date || value instanceof RegExp || value instanceof Map || value instanceof Set) return false;
     return true;
 }
-type PatchPlan = Array<string[]>;
-const patchPlanCache = new Map<string, PatchPlan>();
-function patchShapeKey(source: any): string {
-    let key = '';
-    const walk = (node: any) => {
-        for (const k in node) {
-            if (isUnsafeObjectKey(k)) continue;
-            key += k;
-            const value = node[k];
-            if (isMergeObject(value)) {
-                key += '{';
-                walk(value);
-                key += '}';
-            } else {
-                key += ';';
-            }
-        }
-    };
-    walk(source);
-    return key;
-}
-function buildPatchPlan(source: any): PatchPlan {
-    const paths: PatchPlan = [];
-    const walk = (node: any, path: string[]) => {
-        for (const k in node) {
-            if (isUnsafeObjectKey(k)) continue;
-            const value = node[k];
-            const next = path.concat(k);
-            if (isMergeObject(value)) walk(value, next); else paths.push(next);
-        }
-    };
-    walk(source, []);
-    return paths;
-}
-function getPatchPlan(source: any): PatchPlan {
-    const key = patchShapeKey(source);
-    let plan = patchPlanCache.get(key);
-    if (!plan) {
-        plan = buildPatchPlan(source);
-        if (patchPlanCache.size > 256) patchPlanCache.clear();
-        patchPlanCache.set(key, plan);
-    }
-    return plan;
-}
-function applyPatchPlan(target: any, source: any, plan: PatchPlan): any {
-    for (let i = 0; i < plan.length; i++) {
-        const path = plan[i];
-        let targetNode = target;
-        let sourceNode = source;
-        for (let j = 0; j < path.length - 1; j++) {
-            const key = path[j];
-            sourceNode = sourceNode[key];
-            let nextTarget = targetNode[key];
-            if (!isMergeObject(nextTarget)) targetNode[key] = nextTarget = {};
-            targetNode = nextTarget;
-        }
-        const leaf = path[path.length - 1];
-        const value = sourceNode[leaf];
-        if (!Object.is(targetNode[leaf], value)) targetNode[leaf] = value;
-    }
-    return target;
-}
-function applySingleLeafPatch(target: any, source: any): boolean {
-    let targetNode = target;
-    let sourceNode = source;
-    while (isMergeObject(sourceNode)) {
-        let key = '';
-        let count = 0;
-        for (const k in sourceNode) {
-            if (isUnsafeObjectKey(k)) continue;
-            key = k;
-            count++;
-            if (count > 1) return false;
-        }
-        if (count === 0) return true;
-        const value = sourceNode[key];
+// A previous implementation computed a string "shape key" for the whole
+// source tree, used it to look up (or build) a flattened list of leaf paths,
+// then re-descended from `target`'s root once per leaf to apply each one.
+// For a patch touching N leaves under a shared parent, that meant: one full
+// tree walk just to build the cache key, then N separate root-to-leaf walks
+// through the reactive proxy (each proxy `get` re-wrapping nested objects and
+// registering a dependency) to do O(depth * N) work where O(nodeCount) is
+// enough. Merging directly, visiting each node exactly once, is both simpler
+// and asymptotically better — and it's what actually made this benchmark
+// 4-5x slower than a plain object spread despite the "optimization".
+function deepMergeInto(target: any, source: any): void {
+    for (const key in source) {
+        if (isUnsafeObjectKey(key)) continue;
+        const value = source[key];
         if (isMergeObject(value)) {
-            let nextTarget = targetNode[key];
-            if (!isMergeObject(nextTarget)) targetNode[key] = nextTarget = {};
-            targetNode = nextTarget;
-            sourceNode = value;
-            continue;
+            let nextTarget = target[key];
+            if (!isMergeObject(nextTarget)) target[key] = nextTarget = {};
+            deepMergeInto(nextTarget, value);
+        } else if (!Object.is(target[key], value)) {
+            target[key] = value;
         }
-        if (!Object.is(targetNode[key], value)) targetNode[key] = value;
-        return true;
     }
-    return false;
 }
 function deepMerge(target: any, source: any): any {
     if (!isMergeObject(source)) return source;
-    if (applySingleLeafPatch(target, source)) return target;
-    return applyPatchPlan(target, source, getPatchPlan(source));
+    deepMergeInto(target, source);
+    return target;
 }
 
 /**

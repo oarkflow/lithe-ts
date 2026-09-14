@@ -27,9 +27,12 @@ export function installDelegatedEvents(root, eventTypes = ['click', 'input', 'ch
     const disposers = [];
     let disposed = false;
     for (const type of new Set(eventTypes)) {
+        // `type` is fixed for the lifetime of this listener — compute the
+        // property key once at registration instead of rebuilding the same
+        // string on every single dispatched event.
+        const key = `__lithe_${type}`;
         const listener = event => {
             let node = event.target;
-            const key = `__lithe_${type}`;
             while (node && node !== root.parentNode) {
                 const handler = node[key];
                 if (handler) {

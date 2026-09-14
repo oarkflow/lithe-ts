@@ -1,7 +1,7 @@
 import { effect, isSignal } from '../core/reactive.ts';
 import { createScope, onCleanup } from '../core/owner.ts';
 import { Fragment, isVNode, h } from './vnode.ts';
-import { mount, __mountAny, __setAttribute } from './dom.ts';
+import { mount, __mountAny, __setAttribute, __templateRecipe, __resolveMarkerPath } from './dom.ts';
 import { isEventProp, installDelegatedEvents } from './events.ts';
 let lastHydrationReport = {
     status: 'idle',
@@ -135,61 +135,112 @@ function setupProps(node, props, options) {
         onCleanup(() => props.ref(null));
     }
 }
-function claimCompiledTemplate(parent, node, value, options) {
-    if (!node || node.nodeType !== 1) throw mismatch('Hydration compiled template mismatch', node, 'compiled template root');
-    const starts = new Map(),
-        ends = new Map(),
-        walker = document.createTreeWalker(node, 128);
-    let c;
-    while (c = walker.nextNode()) {
-        let m = String(c.data || '').match(/^l:s:(\d+)$/);
-        if (m) starts.set(Number(m[1]), c);
-        m = String(c.data || '').match(/^l:e:(\d+)$/);
-        if (m) ends.set(Number(m[1]), c);
-    }
-    if (value.attributes?.length) {
-        const elements = [node, ...node.querySelectorAll('*')];
-        for (const element of elements) {
-            for (let i = 0; i < value.attributes.length; i++) {
-                const marker = `data-lithe-a${i}`;
-                if (!element.hasAttribute(marker)) continue;
-                element.removeAttribute(marker);
-                const binding = value.attributes[i];
-                let previous = element.getAttribute(binding[0]);
-                const d = effect(() => {
-                    const next = resolve(binding[1]);
-                    __setAttribute(element, binding[0], next, previous, options);
-                    previous = next;
-                }, { sync: true });
-                onCleanup(d);
+// Walks the offline (unrendered, cached — see __templateRecipe in dom.ts)
+// template shape in lockstep with the live, already-SSR-rendered DOM to
+// locate each content binding's position, instead of relying on any
+// SSR-emitted marker: static structure (real elements/text) advances both
+// cursors together, recursing into element children; a marker comment
+// (<!--l:i-->) hands its live position to setupDynamicRegion — the exact
+// mechanism an ordinary {expr} child already uses for hydration — which
+// claims however many live nodes that binding's *current* value structurally
+// requires (0, 1, or many, via claim()) and returns where it ended, so the
+// walk resumes from there for the next sibling. This needs no fixed
+// per-binding node width and no SSR-side marker protocol (an earlier version
+// of this looked for <!--l:s:N-->/<!--l:e:N--> pairs, but SSR's
+// renderCompiledTemplate fully substitutes <!--l:i--> with the rendered
+// content — nothing survives for it to find; see renderCompiledTemplate in
+// server/ssr.ts).
+function claimTemplateContent(liveParent, firstLive, offlineParent, bindings, options) {
+    let live = firstLive;
+    const offlineChildren = offlineParent.childNodes;
+    for (let i = 0; i < offlineChildren.length; i++) {
+        const offlineChild = offlineChildren[i];
+        if (offlineChild.nodeType === 8) {
+            const m = /^l:(\d+)$/.exec(offlineChild.data || '');
+            if (m) {
+                // renderCompiledTemplate (ssr.ts) inserts an empty <!---->
+                // separator around this binding's rendered content whenever
+                // it could otherwise coalesce with adjacent text into one
+                // Text node — skip it on both sides, same as sibling
+                // children already do via skipTextSeparator.
+                const result = setupDynamicRegion(liveParent, skipTextSeparator(live), bindings[Number(m[1])], options);
+                live = skipTextSeparator(result.next);
+                continue;
             }
         }
-    }
-    for (let i = 0; i < (value.bindings || []).length; i++) {
-        const start = starts.get(i),
-            end = ends.get(i);
-        if (!start || !end) {
-            reportMismatch(`Hydration missing compiled binding ${i}`, node, `binding ${i}`);
-            continue;
+        if (!live) {
+            reportMismatch('Hydration compiled template ran out of live nodes', liveParent, nodeLabel(offlineChild));
+            return;
         }
-        let first = true,
-            scope = null;
-        const d = effect(() => {
-            const current = resolve(value.bindings[i]);
-            if (first) {
-                first = false;
+        if (offlineChild.nodeType === 1) {
+            if (live.nodeType !== 1 || live.localName !== offlineChild.localName) {
+                reportMismatch('Hydration compiled template structure mismatch', live, nodeLabel(offlineChild));
                 return;
             }
-            scope?.dispose();
-            removeBetween(start, end);
-            scope = createScope(() => __mountAny(start.parentNode, current, end, options));
-        }, {
-            sync: true
-        });
-        onCleanup(() => {
-            d();
-            scope?.dispose();
-        });
+            if (offlineChild.childNodes.length) claimTemplateContent(live, live.firstChild, offlineChild, bindings, options);
+        }
+        live = live.nextSibling;
+    }
+}
+function claimCompiledTemplate(parent, node, value, options) {
+    if (!node || node.nodeType !== 1) throw mismatch('Hydration compiled template mismatch', node, 'compiled template root');
+    // Shared by both the attribute-marker fast path and content-binding
+    // hydration below: dom.ts already computes, and caches per unique
+    // `html` string, the parsed offline <template> plus each marker's
+    // position as a plain child-index path (see __templateRecipe). Paths/
+    // structure are relative to the template's root *fragment*, whose first
+    // child is this compiled template's root element (`node` here) — only
+    // safe to reuse directly when that's the fragment's ONLY top-level node,
+    // which the fallbacks below guard for.
+    const recipe = __templateRecipe(value.html, true);
+    const singleRooted = recipe.template.content.childNodes.length === 1 && recipe.template.content.firstChild?.nodeType === 1;
+    if (value.attributes?.length) {
+        const resolved = new Set();
+        const wire = (element, i) => {
+            const marker = `data-lithe-a${i}`;
+            if (!element || typeof element.hasAttribute !== 'function' || !element.hasAttribute(marker)) return false;
+            element.removeAttribute(marker);
+            const binding = value.attributes[i];
+            let previous = element.getAttribute(binding[0]);
+            const d = effect(() => {
+                const next = resolve(binding[1]);
+                __setAttribute(element, binding[0], next, previous, options);
+                previous = next;
+            }, { sync: true });
+            onCleanup(d);
+            return true;
+        };
+        if (singleRooted) {
+            for (let i = 0; i < value.attributes.length; i++) {
+                const path = recipe.attributePaths?.get(i);
+                const element = path && __resolveMarkerPath(node, path.slice(1));
+                if (wire(element, i)) resolved.add(i);
+            }
+        }
+        // Fall back to the exhaustive scan for any binding the fast path
+        // didn't account for (a multi-rooted template, or — should the
+        // cached shape ever disagree with this live DOM — a mismatch), so
+        // correctness never depends on the single-root assumption holding.
+        // Bindings the fast path already wired are skipped here so nothing
+        // gets double-applied.
+        if (resolved.size !== value.attributes.length) {
+            const elements = [node, ...node.querySelectorAll('*')];
+            for (const element of elements) {
+                for (let i = 0; i < value.attributes.length; i++) {
+                    if (resolved.has(i)) continue;
+                    if (wire(element, i)) resolved.add(i);
+                }
+            }
+        }
+    }
+    if (value.bindings?.length) {
+        if (singleRooted) {
+            claimTemplateContent(node, node.firstChild, recipe.template.content.firstChild, value.bindings, options);
+        } else {
+            for (let i = 0; i < value.bindings.length; i++) {
+                reportMismatch(`Hydration missing compiled binding ${i}`, node, `binding ${i}`);
+            }
+        }
     }
     return {
         next: node.nextSibling,

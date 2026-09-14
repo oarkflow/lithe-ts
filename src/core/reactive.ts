@@ -58,9 +58,7 @@ export class Dependency {
         this.label = label;
         this.kind = kind;
         this.version = 0;
-        if (globalThis.__LITHE_REACTIVE_DEBUG_HOOK__) {
-            globalThis.__LITHE_REACTIVE_DEBUG_HOOK__.registerDependency?.(this);
-        }
+        globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerDependency?.(this);
     }
     hasSubscriber(sub: any): boolean {
         if (this._subscribers) return this._subscribers.has(sub);
@@ -183,6 +181,11 @@ function notifyAtomically(dep: Dependency) {
 export class Observer<T = unknown> {
     fn: (cleanup: (fn: () => void) => void) => T;
     dependencies: Dependency[];
+    // Membership mirror of `dependencies`, kept so addDependency() can dedup
+    // in O(1) instead of Array.prototype.indexOf's O(n) scan — without it, an
+    // effect/computed reading M distinct signals pays O(M^2) just to build
+    // its own dependency list.
+    _depSet: Set<Dependency>;
     cleanups: Array<() => void>;
     disposed: boolean;
     running: boolean;
@@ -204,12 +207,17 @@ export class Observer<T = unknown> {
         name: string | null;
         kind: string;
     } | null;
+    // Bound once and reused across every run() instead of being reallocated
+    // per re-run — both only ever close over `this`, which never changes.
+    _cleanupAdder: (fn: () => void) => void;
+    _invoke: () => T;
     constructor(fn: (cleanup: (fn: () => void) => void) => T, options: ObserverOptions & {
         kind?: string;
         onInvalidate?: () => void;
     } = {}) {
         this.fn = fn;
         this.dependencies = [];
+        this._depSet = new Set();
         this.cleanups = [];
         this.disposed = false;
         this.running = false;
@@ -227,11 +235,14 @@ export class Observer<T = unknown> {
         this.scheduledCancel = null;
         this._rerunRequested = false;
         this.lastCause = null;
+        this._cleanupAdder = (cleanupFn: () => void) => { this.cleanups.push(cleanupFn); };
+        this._invoke = () => this.fn(this._cleanupAdder);
         globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerObserver?.(this);
         this.run();
     }
     addDependency(dep: Dependency) {
-        if (this.dependencies.indexOf(dep) !== -1) return;
+        if (this._depSet.has(dep)) return;
+        this._depSet.add(dep);
         this.dependencies.push(dep);
         dep.addSubscriber(this);
     }
@@ -257,6 +268,7 @@ export class Observer<T = unknown> {
             }
         }
         this.dependencies.length = 0;
+        this._depSet.clear();
         for (let i = this.cleanups.length - 1; i >= 0; i--) {
             try {
                 this.cleanups[i]();
@@ -290,8 +302,7 @@ export class Observer<T = unknown> {
         const previousCause = globalThis.__LITHE_REACTIVE_CAUSE__;
         globalThis.__LITHE_REACTIVE_CAUSE__ = this.lastCause;
         try {
-            const invoke = () => this.fn(cleanup => this.cleanups.push(cleanup));
-            this.value = this.owner ? withOwner(this.owner, invoke) : invoke();
+            this.value = this.owner ? withOwner(this.owner, this._invoke) : this._invoke();
             return this.value;
         } finally {
             globalThis.__LITHE_REACTIVE_CAUSE__ = previousCause;
@@ -316,12 +327,17 @@ export class Observer<T = unknown> {
 export class SignalImpl<T> extends Dependency implements Signal<T> {
     _value: T;
     _equals: false | ((previous: T, next: T) => boolean);
-    __litheSignal = true;
-    __dep: Dependency;
+    // Tag/self-reference are identical for every instance of this class, so
+    // they live on the prototype instead of being written (and triggering a
+    // hidden-class shape transition) on every single construction — this
+    // matters because signal creation is one of the hottest allocation paths
+    // in the framework.
+    declare __litheSignal: true;
+    declare __dep: Dependency;
     __litheName: string | null = null;
-    constructor(initial: T, options: SignalOptions = {}) {
-        super(options.name || '', 'signal');
-        const name = options.name;
+    constructor(initial: T, options?: SignalOptions) {
+        super(options?.name || '', 'signal');
+        const name = options?.name;
         let val = initial;
         if (name) {
             const resumeSnapshot = globalThis.__LITHE_RESUME_SIGNAL_SNAPSHOT__;
@@ -333,8 +349,7 @@ export class SignalImpl<T> extends Dependency implements Signal<T> {
             }
         }
         this._value = val;
-        this._equals = options.equals === false ? false : options.equals as any || Object.is;
-        this.__dep = this;
+        this._equals = options?.equals === false ? false : (options?.equals as any) || Object.is;
         this.__litheName = name || null;
         if (name) {
             (globalThis.__LITHE_NAMED_SIGNALS__ ||= new Map()).set(name, this);
@@ -409,6 +424,11 @@ export class SignalImpl<T> extends Dependency implements Signal<T> {
         return String(this._value);
     }
 }
+SignalImpl.prototype.__litheSignal = true;
+Object.defineProperty(SignalImpl.prototype, '__dep', {
+    get(this: SignalImpl<unknown>) { return this; },
+    configurable: true
+});
 export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     _fn: () => T;
     _value: T = undefined as any;
@@ -417,16 +437,20 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     _owner: ReturnType<typeof getOwner>;
     _disposed = false;
     _equals: false | ((previous: T, next: T) => boolean);
-    __litheSignal = true;
-    __computed = true;
-    __dep: Dependency;
+    declare __litheSignal: true;
+    declare __computed: true;
+    declare __dep: Dependency;
     _dep1: Dependency | null = null;
     _tracking: Dependency[] | null = null;
-    constructor(fn: () => T, options: SignalOptions = {}) {
-        super(options.name || '', 'computed');
+    // Membership mirror of `_tracking`, populated in lockstep so
+    // addDependency() dedups in O(1) during retrack instead of Array.indexOf's
+    // O(n) scan (an effect/computed with M dependencies would otherwise pay
+    // O(M^2) to rebuild its own dependency list on every evaluation).
+    _trackingSet: Set<Dependency> | null = null;
+    constructor(fn: () => T, options?: SignalOptions) {
+        super(options?.name || '', 'computed');
         this._fn = fn;
-        this._equals = options.equals === false ? false : options.equals as any || Object.is;
-        this.__dep = this;
+        this._equals = options?.equals === false ? false : (options?.equals as any) || Object.is;
         this._owner = getOwner();
         if (this._owner) {
             onCleanup(() => this.dispose());
@@ -434,7 +458,9 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     }
     addDependency(dep: Dependency) {
         if (this._tracking) {
-            if (this._tracking.indexOf(dep) === -1) this._tracking.push(dep);
+            if (this._trackingSet!.has(dep)) return;
+            this._trackingSet!.add(dep);
+            this._tracking.push(dep);
             return;
         }
         if (this._dep1 === dep || this._deps.indexOf(dep) !== -1) return;
@@ -464,7 +490,9 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
         // diff the lists to avoid subscription churn for stable computations.
         const previous: Dependency[] = this._dep1 ? [this._dep1, ...this._deps] : [...this._deps];
         const nextDeps: Dependency[] = [];
+        const nextSet = new Set<Dependency>();
         this._tracking = nextDeps;
+        this._trackingSet = nextSet;
         const prevObserver = activeObserver;
         activeObserver = this;
         try {
@@ -475,16 +503,26 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
             }
             this._state = STATE_CLEAN;
             this._tracking = null;
+            this._trackingSet = null;
+            // nextSet already holds exactly the (deduped) contents of
+            // nextDeps, so it doubles as the "is this old dep still current"
+            // membership test below — no second Set needed for that side.
             for (let i = 0; i < previous.length; i++) {
-                if (nextDeps.indexOf(previous[i]) === -1) previous[i].removeSubscriber(this);
+                if (!nextSet.has(previous[i])) previous[i].removeSubscriber(this);
             }
-            for (let i = 0; i < nextDeps.length; i++) {
-                if (previous.indexOf(nextDeps[i]) === -1) nextDeps[i].addSubscriber(this);
+            if (previous.length) {
+                const previousSet = new Set(previous);
+                for (let i = 0; i < nextDeps.length; i++) {
+                    if (!previousSet.has(nextDeps[i])) nextDeps[i].addSubscriber(this);
+                }
+            } else {
+                for (let i = 0; i < nextDeps.length; i++) nextDeps[i].addSubscriber(this);
             }
             this._dep1 = nextDeps[0] || null;
             this._deps = nextDeps.slice(1);
         } finally {
             this._tracking = null;
+            this._trackingSet = null;
             activeObserver = prevObserver;
         }
     }
@@ -534,10 +572,16 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
         return String(this.value);
     }
 }
-export function signal<T>(initial: T, options: SignalOptions = {}): Signal<T> {
+ComputedImpl.prototype.__litheSignal = true;
+ComputedImpl.prototype.__computed = true;
+Object.defineProperty(ComputedImpl.prototype, '__dep', {
+    get(this: ComputedImpl<unknown>) { return this; },
+    configurable: true
+});
+export function signal<T>(initial: T, options?: SignalOptions): Signal<T> {
     return new SignalImpl(initial, options);
 }
-export function computed<T>(fn: () => T, options: SignalOptions = {}): ReadonlySignal<T> {
+export function computed<T>(fn: () => T, options?: SignalOptions): ReadonlySignal<T> {
     return new ComputedImpl(fn, options);
 }
 export function effect(fn: (cleanup: (fn: () => void) => void) => unknown, options: ObserverOptions = {}): () => void {
