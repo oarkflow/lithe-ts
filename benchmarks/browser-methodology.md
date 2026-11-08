@@ -440,3 +440,57 @@ updates, and clearing. Selection is below the timer's 0.1ms display resolution
 for both vanilla and Lithe. The allocation change did not materially move
 creation time compared with the prior run; Lithe does not yet outperform React
 across this suite.
+
+## Single-root template clone experiment, round 9
+
+The browser profile showed repeated template cloning and marker path lookup
+during keyed row creation. An experiment cloned single-root templates directly
+and specialized short marker paths. Rendering tests passed, but the 15-run
+benchmark did not show a result outside run-to-run noise, while the core package
+exceeded its existing raw and gzip byte budgets. The experiment was removed.
+
+Fifteen production browser runs after one warmup, Chrome 156.0.8078.80, macOS
+25.5.0 arm64. Raw samples are in
+[`results/single-root-clone-2026-11-08.json`](results/single-root-clone-2026-11-08.json).
+
+| Scenario | Vanilla | Lithe | React | Solid |
+| --- | ---: | ---: | ---: | ---: |
+| create1k | 3.1 | 6.9 | 0.8 | 11.2 |
+| update10th | 0.5 | 1.9 | 0.5 | 2.1 |
+| selectOne | 0.0 | 0.1 | 0.5 | 1.0 |
+| swapRows | 0.1 | 0.2 | 0.6 | 0.4 |
+| removeOne | 0.1 | 0.2 | 1.1 | 0.3 |
+| clearAll | 2.0 | 4.4 | 1.1 | 2.4 |
+
+Times are median milliseconds from the experimental build. Creation remained
+slower than React, and the result was within the run-to-run range of the prior
+sample. Lithe won swap and removal in this sample; selection was near timer
+resolution. The optimization was removed because the evidence did not justify
+its package-size cost.
+
+## Static binding observer experiment, round 10
+
+An experimental `effectBinding()` path probed dependencies during a getter's
+initial run and avoided an `Observer` for static getters. Its focused behavior
+tests passed, but it added public core export surface and exceeded the core
+package byte budget. The 15-run benchmark also showed no median improvement,
+so the experiment was removed. It is not part of the current runtime.
+
+Fifteen production browser runs after one warmup, Chrome 156.0.8078.80, macOS
+25.5.0 arm64. Raw samples are in
+[`results/static-binding-fastpath-2026-11-08.json`](results/static-binding-fastpath-2026-11-08.json).
+
+| Scenario | Vanilla | Lithe | React | Solid |
+| --- | ---: | ---: | ---: | ---: |
+| create1k | 2.7 | 6.9 | 1.0 | 10.6 |
+| update10th | 0.5 | 1.9 | 0.5 | 2.0 |
+| selectOne | 0.0 | 0.1 | 0.8 | 1.0 |
+| swapRows | 0.1 | 0.2 | 1.1 | 0.4 |
+| removeOne | 0.1 | 0.3 | 1.2 | 0.3 |
+| clearAll | 1.9 | 4.1 | 1.0 | 2.1 |
+
+Times are median milliseconds from the experimental build. The fast path did
+not move the benchmark medians compared with the prior run, so it was removed.
+Lithe still loses creation, update, and clear against React in this workload;
+its selection, swap, and removal results remain faster or close at the timer's
+resolution.

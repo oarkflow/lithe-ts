@@ -11,6 +11,7 @@ The entire framework — runtime, compiler, build tooling, dev server, and CLI �
 ## Contents
 
 - [Installation](#installation)
+- [Complete framework guide](docs/GUIDE.md)
 - [Quick start](#quick-start)
 - [Complete router example](#complete-router-example)
 - [Core programming model](#core-programming-model)
@@ -30,6 +31,8 @@ The entire framework — runtime, compiler, build tooling, dev server, and CLI �
 ---
 
 ## Installation
+
+For the full feature and API guide, see [docs/GUIDE.md](docs/GUIDE.md).
 
 Install the published package from the npm registry:
 
@@ -676,6 +679,7 @@ docs/           architecture and DX documentation
 
 - [`Tasks.md`](./Tasks.md) — the completed engineering ledger
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — internals and architecture
+- [`docs/GUIDE.md`](./docs/GUIDE.md) — complete framework feature and usage guide
 - [`docs/TRUST_DX.md`](./docs/TRUST_DX.md) — typed helpers, debugging surfaces, `lithe doctor`, benchmark-proof rules
 - [`RELEASE_VALIDATION.md`](./RELEASE_VALIDATION.md) — the release validation process
 - [`CHANGELOG.md`](./CHANGELOG.md) — release history
