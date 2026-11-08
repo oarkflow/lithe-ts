@@ -413,3 +413,30 @@ and remains slower on initial creation and full clearing. React remains faster
 on most scenarios. This is one Chrome workload, not evidence of a general
 cross-framework win. A `Range.deleteContents()` clear path was tested and
 reverted because it did not improve the median.
+
+## Row allocation follow-up, round 8
+
+Removed a redundant copy of each mounted row's node array. The row mount result
+already owns that array, so retaining it directly preserves disposal and keyed
+movement behavior. The focused reactive/rendering tests and source checker pass.
+
+Fifteen production browser runs after one warmup, Chrome 156.0.8078.80, macOS
+25.5.0 arm64. Raw samples are in
+[`results/node-array-copy-2026-11-08.json`](results/node-array-copy-2026-11-08.json).
+
+| Scenario | Vanilla | Lithe | React | Solid |
+| --- | ---: | ---: | ---: | ---: |
+| create1k | 2.7 | 7.2 | 0.8 | 10.7 |
+| update10th | 0.4 | 1.6 | 0.6 | 1.9 |
+| selectOne | 0.0 | 0.0 | 0.8 | 0.9 |
+| swapRows | 0.0 | 0.2 | 0.8 | 0.4 |
+| removeOne | 0.1 | 0.3 | 1.0 | 0.3 |
+| clearAll | 2.1 | 3.3 | 0.9 | 2.2 |
+
+Times are median milliseconds. This allocation change did not materially move
+creation time compared with the prior run. Lithe wins select, swap, and
+single-row removal in these samples, while React wins creation, immutable row
+updates, and clearing. Selection is below the timer's 0.1ms display resolution
+for both vanilla and Lithe. The allocation change did not materially move
+creation time compared with the prior run; Lithe does not yet outperform React
+across this suite.

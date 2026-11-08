@@ -44,9 +44,11 @@ export function enableReactiveDebug() {
     if (installed) return () => { };
     previous = globalThis.__LITHE_REACTIVE_DEBUG_HOOK__;
     if (previous !== hook) globalThis.__LITHE_REACTIVE_DEBUG_HOOK__ = hook;
+    globalThis.__LITHE_SET_REACTIVE_DEBUG_HOOK__?.(globalThis.__LITHE_REACTIVE_DEBUG_HOOK__);
     installed = true;
     return () => {
         if (globalThis.__LITHE_REACTIVE_DEBUG_HOOK__ === hook) globalThis.__LITHE_REACTIVE_DEBUG_HOOK__ = previous;
+        globalThis.__LITHE_SET_REACTIVE_DEBUG_HOOK__?.(globalThis.__LITHE_REACTIVE_DEBUG_HOOK__);
         installed = false;
         previous = null;
     };

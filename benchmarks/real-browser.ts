@@ -275,11 +275,18 @@ async function main() {
 				// first complete run warms the browser/JIT and is intentionally
 				// excluded from the report.
 				if (name === 'lithe' && process.env.LITHE_BENCH_PROFILE === '1') {
+					await runInBrowser(page, url);
 					await page.send('Profiler.enable');
 					await page.send('Profiler.start');
-					await runInBrowser(page, url);
+					const profiled = await page.send('Runtime.evaluate', {
+						expression: '(async()=>{for(let i=0;i<5;i++) await window.runBenchmark()})()',
+						awaitPromise: true,
+						returnByValue: true,
+						timeout: 60000
+					});
+					if (profiled.exceptionDetails) throw new Error(profiled.exceptionDetails.exception?.description || profiled.exceptionDetails.text);
 					const { profile: cpuProfile } = await page.send('Profiler.stop');
-					console.log('\nLithe warmup CPU profile (self time):');
+					console.log('\nLithe five-run CPU profile (self time):');
 					console.log(JSON.stringify(profileSummary(cpuProfile), null, 2));
 				} else {
 					await runInBrowser(page, url);

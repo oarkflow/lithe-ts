@@ -58,13 +58,16 @@ const NEGATIVE_ZERO = Symbol('lithe.negative-zero');
 function bucketKey(key) {
     return typeof key === 'number' && Object.is(key, -0) ? NEGATIVE_ZERO : key;
 }
-function renderScope(mountAny, view, options, lazy = false) {
-    const fragment = document.createDocumentFragment(),
+function renderScope(mountAny, view, options, lazy = false, target = null) {
+    const fragment = target || document.createDocumentFragment(),
         scope = createScope(() => mountAny(fragment, lazy ? view() : view, null, options), { detached: true });
     return {
         fragment,
         scope,
-        nodes: [...scope.value.nodes]
+        // The mount result is already a row-owned array. Copying it here
+        // allocated one additional array for every keyed row without
+        // changing its ownership or lifetime.
+        nodes: scope.value.nodes
     };
 }
 export function Show(props) {
@@ -118,6 +121,7 @@ function tryReplaceRowsInPlace(state, items, rawItems, parent, renderer, props, 
         const built = renderScope(mountAny, () => renderer(item, row.index), options, true);
         const next = { ...built, base, occ: row.occ, item, index: row.index };
         parent.insertBefore(built.fragment, row.nodes[0]);
+        next.fragment = null;
         removeRow(row);
         rows[i] = next;
         bucket[row.occ] = next;
@@ -214,7 +218,7 @@ function tryAppend(state, items, rawItems, parent, end, renderer, props, options
         let bucket = byKey.get(bucketId);
         const occ = bucket ? bucket.length : 0;
         const index = indexSignal(i);
-        const built = renderScope(mountAny, () => renderer(currentItem, index), options, true);
+        const built = renderScope(mountAny, () => renderer(currentItem, index), options, true, fragment);
         const row = {
             ...built,
             base,
@@ -222,12 +226,12 @@ function tryAppend(state, items, rawItems, parent, end, renderer, props, options
             item: currentItem,
             index
         };
-        fragment.appendChild(built.fragment);
         if (!bucket) byKey.set(bucketId, bucket = []);
         bucket.push(row);
         newRows[i - rows.length] = row;
     }
     parent.insertBefore(fragment, end);
+    for (const row of newRows) row.fragment = null;
     state.rows = rows.concat(newRows);
     return true;
 }
@@ -329,7 +333,8 @@ function syncForRows(state, items, parent, end, renderer, props, options, mountA
         }
         if (!row) {
             const index = indexSignal(i),
-                built = renderScope(mountAny, () => renderer(currentItem, index), options, true);
+                target = pendingNewRows ??= document.createDocumentFragment(),
+                built = renderScope(mountAny, () => renderer(currentItem, index), options, true, target);
             row = {
                 ...built,
                 base,
@@ -337,7 +342,6 @@ function syncForRows(state, items, parent, end, renderer, props, options, mountA
                 item: currentItem,
                 index
             };
-            (pendingNewRows ??= document.createDocumentFragment()).appendChild(built.fragment);
         } else if (row.index.peek() !== i) {
             // A reused row whose position genuinely hasn't changed (the
             // common case for an update/append that isn't a reorder) skips
@@ -349,7 +353,10 @@ function syncForRows(state, items, parent, end, renderer, props, options, mountA
         newBucket.push(row);
         next.push(row);
     }
-    if (pendingNewRows) parent.insertBefore(pendingNewRows, end);
+    if (pendingNewRows) {
+        parent.insertBefore(pendingNewRows, end);
+        for (const row of next) if (row.fragment === pendingNewRows) row.fragment = null;
+    }
     const retained = new Set(next);
     for (const row of oldRows) if (!retained.has(row)) removeRow(row);
     state.rows = next;

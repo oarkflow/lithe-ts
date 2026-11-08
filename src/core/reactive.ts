@@ -1,9 +1,13 @@
 import { schedule } from './scheduler.ts';
 import { getOwner, onCleanup, withOwner } from './owner.ts';
 import { ARRAY_MUTATION, ARRAY_TRACK } from './internal.ts';
-import type { Priority, Signal, ReadonlySignal, SignalOptions, ObserverOptions } from './types.ts';
+import type { Priority, Signal, ReadonlySignal, SelectorAccessor, SignalOptions, ObserverOptions } from './types.ts';
 let activeObserver: any = null;
 let tracking = true;
+let reactiveDebugHook: any = globalThis.__LITHE_REACTIVE_DEBUG_HOOK__;
+globalThis.__LITHE_SET_REACTIVE_DEBUG_HOOK__ = hook => {
+    reactiveDebugHook = hook;
+};
 let batchDepth = 0;
 let reactiveSeq = 0;
 let pendingObservers: any[] = [];
@@ -58,7 +62,7 @@ export class Dependency {
         this.label = label;
         this.kind = kind;
         this.version = 0;
-        globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerDependency?.(this);
+        reactiveDebugHook?.registerDependency?.(this);
     }
     hasSubscriber(sub: any): boolean {
         if (this._subscribers) return this._subscribers.has(sub);
@@ -237,7 +241,7 @@ export class Observer<T = unknown> {
         this.lastCause = null;
         this._cleanupAdder = (cleanupFn: () => void) => { this.cleanups.push(cleanupFn); };
         this._invoke = () => this.fn(this._cleanupAdder);
-        globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.registerObserver?.(this);
+        reactiveDebugHook?.registerObserver?.(this);
         this.run();
     }
     addDependency(dep: Dependency) {
@@ -320,7 +324,7 @@ export class Observer<T = unknown> {
         this.scheduledCancel?.();
         this.scheduledCancel = null;
         this.queued = false;
-        globalThis.__LITHE_REACTIVE_DEBUG_HOOK__?.unregisterObserver?.(this);
+        reactiveDebugHook?.unregisterObserver?.(this);
         this.cleanupDeps();
     }
 }
@@ -383,9 +387,9 @@ export class SignalImpl<T> extends Dependency implements Signal<T> {
         if (this._equals && this._equals(this._value, resolved)) return;
         const previous = this._value;
         this._value = resolved;
-        if (globalThis.__LITHE_REACTIVE_DEBUG_HOOK__) {
+        if (reactiveDebugHook) {
             try {
-                globalThis.__LITHE_REACTIVE_DEBUG_HOOK__.mutation?.({
+                reactiveDebugHook.mutation?.({
                     type: 'signal',
                     id: this.id,
                     name: this.label || null,
@@ -579,20 +583,42 @@ export function signal<T>(initial: T, options?: SignalOptions): Signal<T> {
  * Create keyed boolean accessors that notify only when their key's selected
  * state changes. This avoids waking every row when a single selection moves.
  */
-export function createSelector<T>(source: ReadonlySignal<T> | Signal<T>): ((key: T) => () => boolean) & { dispose(): void } {
-    const values = new Map<T, Set<Signal<boolean>>>();
+export function createSelector<T, R = boolean>(source: ReadonlySignal<T> | Signal<T>, project: (selected: boolean) => R = (selected => selected as R)): ((key: T) => SelectorAccessor<R>) & { dispose(): void } {
+    type Cell = SelectorAccessor<R> & { setSelected(selected: boolean): void; clear(): void };
+    const values = new Map<T, Set<Cell>>();
     let previous = source.peek();
     const select = ((key: T) => {
         let group = values.get(key);
         if (!group) values.set(key, group = new Set());
-        const value = signal(Object.is(key, previous));
-        group.add(value);
+        let dependency: Dependency | null = null;
+        let current = project(Object.is(key, previous));
+        const listeners = new Set<(value: R) => void>();
+        const cell = (() => {
+            (dependency ||= new Dependency('', 'selector')).track();
+            return current;
+        }) as Cell;
+        Object.defineProperty(cell, '__litheSelectorAccessor', { value: true });
+        cell.subscribe = fn => {
+            listeners.add(fn);
+            fn(current);
+            return () => listeners.delete(fn);
+        };
+        cell.setSelected = isSelected => {
+            const next = project(isSelected);
+            if (Object.is(current, next)) return;
+            current = next;
+            dependency?.notify();
+            for (const listener of listeners) listener(next);
+        };
+        cell.clear = () => listeners.clear();
+        group.add(cell);
         if (getOwner()) onCleanup(() => {
-            group!.delete(value);
+            cell.clear();
+            group!.delete(cell);
             if (!group!.size) values.delete(key);
         });
-        return () => value.value;
-    }) as ((key: T) => () => boolean) & { dispose(): void };
+        return cell;
+    }) as ((key: T) => SelectorAccessor<R>) & { dispose(): void };
     const stop = effect(() => {
         const next = source.value;
         if (Object.is(previous, next)) return;
@@ -600,12 +626,13 @@ export function createSelector<T>(source: ReadonlySignal<T> | Signal<T>): ((key:
         const newValues = values.get(next);
         previous = next;
         batch(() => {
-            if (oldValues) for (const value of oldValues) value.value = false;
-            if (newValues) for (const value of newValues) value.value = true;
+            if (oldValues) for (const value of oldValues) value.setSelected(false);
+            if (newValues) for (const value of newValues) value.setSelected(true);
         });
     }, { sync: true });
     select.dispose = () => {
         stop();
+        for (const group of values.values()) for (const cell of group) cell.clear();
         values.clear();
     };
     if (getOwner()) onCleanup(select.dispose);
@@ -622,8 +649,18 @@ export function effect(fn: (cleanup: (fn: () => void) => void) => unknown, optio
         name: options.name
     });
     const owner = getOwner();
-    if (owner) onCleanup(() => obs.dispose());
-    return () => obs.dispose();
+    const dispose = () => obs.dispose();
+    // An effect with no dependencies and no cleanup can never run again.
+    // Don't retain it through the owner cleanup list (common for immutable
+    // keyed-list template bindings); dispose only when debug tooling needs to
+    // remove its observer record. The unreferenced observer is otherwise
+    // reclaimed normally without teardown work on the creation path.
+    if (!obs.dependencies.length && !obs.cleanups.length) {
+        if (reactiveDebugHook) obs.dispose();
+        return dispose;
+    }
+    if (owner) onCleanup(dispose);
+    return dispose;
 }
 export function batch<T>(fn: () => T): T {
     batchDepth++;

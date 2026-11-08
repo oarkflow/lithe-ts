@@ -23,6 +23,7 @@ declare global {
         unregisterObserver?(observer: unknown): void;
         mutation?(event: unknown): void;
     } | undefined;
+    var __LITHE_SET_REACTIVE_DEBUG_HOOK__: ((hook: unknown) => void) | undefined;
     var __LITHE_RESUME_SIGNAL_SNAPSHOT__: Record<string, unknown> | undefined;
     var __LITHE_HMR_SIGNAL_SNAPSHOT__: Record<string, unknown> | undefined;
     var __LITHE_NAMED_SIGNALS__: Map<string, unknown> | undefined;

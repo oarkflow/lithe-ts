@@ -30,6 +30,16 @@ test('createSelector updates only accessors for the previous and next keys', () 
 	assert.deepEqual(scope.value.runs, [2, 2, 3]);
 });
 
+test('createSelector accessors support direct subscriptions and mapped values', () => {
+	const selected = signal(1);
+	const isSelected = createSelector(selected, value => value ? 'selected' : '');
+	const values: string[] = [];
+	const stop = isSelected(1).subscribe(value => values.push(value));
+	selected.value = 2;
+	assert.deepEqual(values, ['selected', '']);
+	stop();
+});
+
 test('computed retracks dynamic branches and releases stale dependencies', () => {
   const enabled=signal(true), left=signal('left'), right=signal('right');
   const selected=computed(()=>enabled.value ? left.value : right.value);
@@ -90,6 +100,19 @@ test('effects track dependencies and batching coalesces final state', async () =
   const value=signal(0); const seen=[]; const stop=effect(()=>seen.push(value.value),{sync:true});
   batch(()=>{value.value=1;value.value=2;value.value=3;});
   assert.deepEqual(seen,[0,3]); stop(); value.value=4; assert.deepEqual(seen,[0,3]);
+});
+
+test('owner-scoped one-shot effects retain cleanup until their owner is disposed', () => {
+	let runs = 0;
+	let cleanups = 0;
+	const scope = createScope(() => effect(cleanup => {
+		runs++;
+		cleanup(() => cleanups++);
+	}, { sync: true }));
+	assert.equal(runs, 1);
+	assert.equal(cleanups, 0);
+	scope.dispose();
+	assert.equal(cleanups, 1);
 });
 
 test('asynchronous effects coalesce burst writes into one pending task', () => {

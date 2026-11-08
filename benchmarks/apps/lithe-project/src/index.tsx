@@ -9,11 +9,10 @@ globalThis.runBenchmark = async () => {
 	container.innerHTML = '';
 	const rows = signal([]);
 	const selected = signal(null);
-	const isSelected = createSelector(selected);
+	const selectedClass = createSelector(selected, isSelected => isSelected ? 'danger' : '');
 	mount(container, <table class="table"><tbody>
 		<For each={rows}>{row => {
-			const selectedRow = isSelected(row.id);
-			return <tr class={() => selectedRow() ? 'danger' : ''}>
+			return <tr class={selectedClass(row.id)}>
 			<td class="col-md-1">{row.id}</td>
 			<td class="col-md-4"><a>{row.label}</a></td>
 			<td class="col-md-1"><span class="glyphicon glyphicon-remove" /></td>

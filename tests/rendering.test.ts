@@ -389,6 +389,29 @@ test('<For> clears rows and renders its fallback', async t => {
 	assert.equal(root.textContent, 'empty');
 });
 
+test('<For> binds selector accessors directly to DOM attributes', async t => {
+	const window = await withDOM(t);
+	if (!window) return;
+	const [{ mount }, { h }, { For }, { signal, createSelector }] = await Promise.all([
+		import('../src/dom/dom.ts'),
+		import('../src/dom/vnode.ts'),
+		import('../src/dom/control.ts'),
+		import('../src/core/reactive.ts')
+	]);
+	const items = signal([{ id: 1 }, { id: 2 }, { id: 3 }]);
+	const selected = signal(1);
+	const classFor = createSelector(selected, value => value ? 'danger' : '');
+	const root = document.createElement('div');
+	mount(root, h(For as any, { each: items }, (item: { id: number }) =>
+		h('li', { class: classFor(item.id) }, item.id)));
+	const nodes = [...root.querySelectorAll('li')];
+	assert.equal(nodes[0].className, 'danger');
+	selected.value = 3;
+	assert.equal(nodes[0].className, '');
+	assert.equal(nodes[2].className, 'danger');
+	assert.equal(root.textContent, '123');
+});
+
 test('<For> reposition uses the longest-stable-run so a swap does not cascade through untouched rows', async t => {
 	const window = await withDOM(t);
 	if (!window) return;

@@ -29,3 +29,8 @@ export interface ReadonlySignal<T> {
     readonly __litheSignal: true;
     readonly __computed: true;
 }
+export interface SelectorAccessor<T> {
+    (): T;
+    subscribe(fn: (value: T) => void): () => void;
+    readonly __litheSelectorAccessor: true;
+}

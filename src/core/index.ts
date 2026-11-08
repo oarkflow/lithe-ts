@@ -1,4 +1,4 @@
-export type { Priority, SignalOptions, ObserverOptions, Signal, ReadonlySignal } from './types.ts';
+export type { Priority, SignalOptions, ObserverOptions, Signal, ReadonlySignal, SelectorAccessor } from './types.ts';
 export * from './reactive.ts';
 export * from './reactive-debug.ts';
 export * from './reactive-resume.ts';

@@ -120,6 +120,11 @@ function dynamicEffect(v: any, apply: (val: any) => void) {
     if (isSignal(v)) return effect(() => apply((v as any).value), {
         sync: true
     });
+    if (typeof v === 'function' && v.__litheSelectorAccessor) {
+        const stop = v.subscribe(apply);
+        onCleanup(stop);
+        return stop;
+    }
     if (typeof v === 'function') return effect(() => apply(v()), {
         sync: true
     });
