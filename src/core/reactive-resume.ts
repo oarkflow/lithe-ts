@@ -1,5 +1,6 @@
 import { batch, effect } from './reactive.ts';
 import { createDetachedOwner } from './owner-resume.ts';
+import { __getOwners } from './owner.ts';
 function named() {
     return globalThis.__LITHE_NAMED_SIGNALS__ ||= new Map();
 }
@@ -8,24 +9,6 @@ function snapshot() {
 }
 function computations() {
     return globalThis.__LITHE_RESUME_COMPUTATIONS__ ||= new Map();
-}
-const owners = new Map();
-const previousOwnerHook = globalThis.__LITHE_OWNER_HOOK__;
-if (!previousOwnerHook?.__litheResume) {
-    globalThis.__LITHE_OWNER_HOOK__ = {
-        __litheResume: true,
-        create(owner) {
-            owners.set(owner.id, owner);
-            previousOwnerHook?.create?.(owner);
-        },
-        dispose(owner) {
-            owners.delete(owner.id);
-            previousOwnerHook?.dispose?.(owner);
-        },
-        context(owner, key, value) {
-            previousOwnerHook?.context?.(owner, key, value);
-        }
-    };
 }
 export function serializeSignals() {
     const out = {};
@@ -57,7 +40,7 @@ export function getNamedSignal(name) {
     return named().get(name);
 }
 export function serializeOwners() {
-    const roots = [...owners.values()].filter(o => !o.parent);
+    const roots = [...__getOwners()].filter(o => !o.parent);
     const clean = o => ({
         id: o.id,
         name: o.name || null,

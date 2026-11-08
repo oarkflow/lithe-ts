@@ -153,11 +153,12 @@ function serveDir(root: string): Promise<{ url: string; close(): void }> {
 }
 
 async function runInBrowser(page: ReturnType<typeof connectCDP>, url: string): Promise<any> {
+	await page.send('Page.addScriptToEvaluateOnNewDocument', { source: 'window.__litheBenchErrors=[];addEventListener("error",e=>window.__litheBenchErrors.push(String(e.message||e.error)));addEventListener("unhandledrejection",e=>window.__litheBenchErrors.push(String(e.reason)))' });
 	const loaded = page.once('Page.loadEventFired', 15000);
 	await page.send('Page.navigate', { url });
 	await loaded;
 	const result = await page.send('Runtime.evaluate', {
-		expression: 'window.runBenchmark()',
+		expression: 'typeof window.runBenchmark === "function" ? window.runBenchmark() : Promise.reject(new Error(JSON.stringify({ url: location.href, state: document.readyState, scripts: [...document.scripts].map(s => s.src), errors: window.__litheBenchErrors, entry: performance.getEntriesByType("resource").map(r => r.name).filter(n => n.includes("index") || n.includes("lithe")) })))',
 		awaitPromise: true,
 		returnByValue: true,
 		timeout: 30000
@@ -169,11 +170,51 @@ async function runInBrowser(page: ReturnType<typeof connectCDP>, url: string): P
 	return result.result.value;
 }
 
+function profileSummary(profile: any, limit = 20) {
+	const names = new Map<number, string>();
+	for (const node of profile.nodes || []) {
+		const frame = node.callFrame || {};
+		const location = frame.url ? `${frame.url.split('/').pop()}:${(frame.lineNumber || 0) + 1}` : '';
+		names.set(node.id, `${frame.functionName || '(anonymous)'}${location ? ` (${location})` : ''}`);
+	}
+	const selfTime = new Map<number, number>();
+	for (let i = 0; i < (profile.samples || []).length; i++) {
+		const id = profile.samples[i];
+		selfTime.set(id, (selfTime.get(id) || 0) + (profile.timeDeltas?.[i] || 0));
+	}
+	return [...selfTime].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([id, microseconds]) => ({
+		function: names.get(id) || `node ${id}`,
+		selfMs: Math.round(microseconds / 10) / 100
+	}));
+}
+
+function median(values: number[]): number {
+	const sorted = [...values].sort((a, b) => a - b);
+	const middle = Math.floor(sorted.length / 2);
+	return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function benchmarkRuns(): number {
+	const value = Number(process.env.LITHE_BENCH_RUNS || 5);
+	if (!Number.isInteger(value) || value < 3 || value > 30) {
+		throw new Error('LITHE_BENCH_RUNS must be an integer from 3 to 30.');
+	}
+	return value;
+}
+
 function gitSha(): string {
 	try {
 		return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).trim();
 	} catch {
 		return 'unknown';
+	}
+}
+
+function gitWorktreeDirty(): boolean | null {
+	try {
+		return Boolean(execFileSync('git', ['status', '--porcelain'], { cwd: HERE, encoding: 'utf8' }).trim());
+	} catch {
+		return null;
 	}
 }
 
@@ -184,6 +225,7 @@ async function main() {
 		process.exitCode = 0;
 		return;
 	}
+	const runs = benchmarkRuns();
 
 	const appsServer = await serveDir(APPS_DIR);
 	const litheServer = await serveDir(LITHE_DIST);
@@ -211,7 +253,9 @@ async function main() {
 			solid: `${appsServer.url}/solid.html`
 		};
 
-		const results: Record<string, any> = {};
+		const samples: Record<string, Record<string, number[]>> = {};
+		const results: Record<string, Record<string, { medianMs: number; minMs: number; maxMs: number }>> = {};
+		const errors: Record<string, string> = {};
 		for (const [name, url] of Object.entries(targets)) {
 			const { targetId } = await root.send('Target.createTarget', { url: 'about:blank' });
 			let pageInfo: any;
@@ -225,10 +269,42 @@ async function main() {
 			await page.ready;
 			await page.send('Page.enable');
 			await page.send('Runtime.enable');
+			const collected: Record<string, number[]> = {};
 			try {
-				results[name] = await runInBrowser(page, url);
+				// A fresh navigation resets app state and DOM for each sample. The
+				// first complete run warms the browser/JIT and is intentionally
+				// excluded from the report.
+				if (name === 'lithe' && process.env.LITHE_BENCH_PROFILE === '1') {
+					await page.send('Profiler.enable');
+					await page.send('Profiler.start');
+					await runInBrowser(page, url);
+					const { profile: cpuProfile } = await page.send('Profiler.stop');
+					console.log('\nLithe warmup CPU profile (self time):');
+					console.log(JSON.stringify(profileSummary(cpuProfile), null, 2));
+				} else {
+					await runInBrowser(page, url);
+				}
+				for (let run = 0; run < runs; run++) {
+					const result = await runInBrowser(page, url);
+					for (const [scenario, value] of Object.entries(result || {})) {
+						if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+						(collected[scenario] ||= []).push(value);
+					}
+				}
+				samples[name] = collected;
+				results[name] = Object.fromEntries(Object.entries(collected).map(([scenario, values]) => [
+					scenario,
+					{
+						medianMs: median(values),
+						minMs: Math.min(...values),
+						maxMs: Math.max(...values)
+					}
+				]));
 			} catch (error: any) {
-				results[name] = { error: String(error?.message || error) };
+				results[name] = {};
+				samples[name] = collected;
+				errors[name] = String(error?.message || error);
+				console.error(`${name} benchmark failed: ${errors[name]}`);
 			}
 			page.close();
 			await root.send('Target.closeTarget', { targetId });
@@ -238,11 +314,23 @@ async function main() {
 		const report = {
 			at: new Date().toISOString(),
 			commit: gitSha(),
+			workingTreeDirty: gitWorktreeDirty(),
 			platform: `${os.platform()} ${os.release()} (${os.arch()})`,
 			browser: browserVersion,
+			warmupRuns: 1,
+			recordedRuns: runs,
+			samples,
+			errors,
 			results
 		};
-		console.log(JSON.stringify(report, null, 2));
+		const reportJSON = JSON.stringify(report, null, 2);
+		console.log(reportJSON);
+		if (process.env.LITHE_BENCH_OUTPUT) {
+			const output = path.resolve(HERE, process.env.LITHE_BENCH_OUTPUT);
+			await fs.mkdir(path.dirname(output), { recursive: true });
+			await fs.writeFile(output, reportJSON + '\n');
+			console.log(`Saved benchmark report: ${path.relative(HERE, output)}`);
+		}
 
 		const scenarios = ['create1k', 'update10th', 'selectOne', 'swapRows', 'removeOne', 'clearAll'];
 		const frameworks = Object.keys(targets);
@@ -250,7 +338,7 @@ async function main() {
 		for (const scenario of scenarios) {
 			const row = frameworks.map(f => {
 				const v = results[f]?.[scenario];
-				return (typeof v === 'number' ? v.toFixed(2) + 'ms' : 'err').padStart(10);
+				return (v ? `${v.medianMs.toFixed(2)}ms` : 'err').padStart(10);
 			}).join('');
 			console.log(scenario.padEnd(14) + row);
 		}

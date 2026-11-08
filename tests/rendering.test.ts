@@ -348,6 +348,47 @@ test('<For> only repositions rows whose DOM position actually changed', async t 
 	assert.ok(root.querySelectorAll('li')[1] === item1);
 });
 
+test('<For> replaces same-key immutable rows in place and preserves unchanged rows', async t => {
+	const window = await withDOM(t);
+	if (!window) return;
+	const [{ mount }, { h }, { For }, { signal }] = await Promise.all([
+		import('../src/dom/dom.ts'),
+		import('../src/dom/vnode.ts'),
+		import('../src/dom/control.ts'),
+		import('../src/core/reactive.ts')
+	]);
+	const unchanged = { id: 2, label: 'keep' };
+	const items = signal([{ id: 1, label: 'old' }, unchanged]);
+	const root = document.createElement('div');
+	const dispose = mount(root, h(For as any, { each: items }, (item: { id: number; label: string }) =>
+		h('li', null, () => `${item.id}:${item.label}`)));
+	const before = [...root.querySelectorAll('li')];
+	items.value = [{ id: 1, label: 'new' }, unchanged];
+	const after = [...root.querySelectorAll('li')];
+	assert.equal(root.textContent, '1:new2:keep');
+	assert.notEqual(after[0], before[0], 'a replaced item rebuilds its closure-backed row');
+	assert.equal(after[1], before[1], 'an unchanged item keeps its row node');
+	dispose();
+});
+
+test('<For> clears rows and renders its fallback', async t => {
+	const window = await withDOM(t);
+	if (!window) return;
+	const [{ mount }, { h }, { For }, { signal }] = await Promise.all([
+		import('../src/dom/dom.ts'),
+		import('../src/dom/vnode.ts'),
+		import('../src/dom/control.ts'),
+		import('../src/core/reactive.ts')
+	]);
+	const items = signal([1, 2, 3]);
+	const root = document.createElement('div');
+	mount(root, h(For as any, { each: items, fallback: h('p', null, 'empty') }, (item: number) => h('li', null, item)));
+	assert.equal(root.querySelectorAll('li').length, 3);
+	items.value = [];
+	assert.equal(root.querySelectorAll('li').length, 0);
+	assert.equal(root.textContent, 'empty');
+});
+
 test('<For> reposition uses the longest-stable-run so a swap does not cascade through untouched rows', async t => {
 	const window = await withDOM(t);
 	if (!window) return;

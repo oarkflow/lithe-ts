@@ -163,7 +163,13 @@ function matchFlat(entry: any, pathname: string): Record<string, string> | null 
     const match = normalizePath(pathname).match(entry._compiled.regex);
     if (!match) return null;
     const params = {};
-    entry._compiled.keys.forEach((key, i) => params[key] = decodeURIComponent(match[i + 1] || ''));
+    try {
+        entry._compiled.keys.forEach((key, i) => params[key] = decodeURIComponent(match[i + 1] || ''));
+    } catch {
+        // A malformed percent escape in a URL segment is a non-match, not a
+        // router exception that can abort initial navigation or server render.
+        return null;
+    }
     return params;
 }
 function searchObject(params: URLSearchParams): Record<string, string | string[]> {

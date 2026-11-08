@@ -1,24 +1,29 @@
-import { state, signal, batch } from '@oarkflow/lithe/core';
+import { createSelector, signal } from '@oarkflow/lithe/core';
 import { mount, For } from '@oarkflow/lithe/dom';
 import { buildRows, runScenarios, resetIds } from './shared.ts';
 
-(globalThis as any).runBenchmark = async () => {
+globalThis.runBenchmark = async () => {
 	resetIds();
-	const container = document.getElementById('app')!;
+	const container = document.getElementById('app');
+	if (!container) throw new Error('Benchmark mount element #app was not found');
 	container.innerHTML = '';
-	const rows = state<{ id: number; label: string }[]>([]);
-	const selected = signal<number | null>(null);
+	const rows = signal([]);
+	const selected = signal(null);
+	const isSelected = createSelector(selected);
 	mount(container, <table class="table"><tbody>
-		<For each={rows}>{(row: any) => <tr class={() => row.id === selected.value ? 'danger' : ''}>
+		<For each={rows}>{row => {
+			const selectedRow = isSelected(row.id);
+			return <tr class={() => selectedRow() ? 'danger' : ''}>
 			<td class="col-md-1">{row.id}</td>
 			<td class="col-md-4"><a>{row.label}</a></td>
 			<td class="col-md-1"><span class="glyphicon glyphicon-remove" /></td>
-		</tr>}</For>
+		</tr>;
+		}}</For>
 	</tbody></table>);
 
 	return runScenarios({
 		create1k() {
-			rows.splice(0, rows.length, ...buildRows(1000));
+			rows.value = buildRows(1000);
 		},
 		update10th() {
 			// Every other framework's app here replaces its whole row array
@@ -28,24 +33,21 @@ import { buildRows, runScenarios, resetIds } from './shared.ts';
 			// 100 separate O(n) reconciliation passes instead of one, which
 			// isn't how a real app would write this in a fine-grained
 			// signals framework either.
-			batch(() => {
-				for (let i = 0; i < rows.length; i += 10) rows[i] = { ...rows[i], label: rows[i].label + ' !!!' };
-			});
+			rows.value = rows.value.map((row, i) => i % 10 === 0 ? { ...row, label: row.label + ' !!!' } : row);
 		},
 		selectOne() {
-			selected.value = rows[500].id;
+			selected.value = rows.value[500].id;
 		},
 		swapRows() {
-			batch(() => {
-				const a = rows[4], b = rows[998];
-				rows[4] = b; rows[998] = a;
-			});
+			const next = rows.value.slice();
+			const a = next[4]; next[4] = next[998]; next[998] = a;
+			rows.value = next;
 		},
 		removeOne() {
-			rows.splice(500, 1);
+			rows.value = rows.value.filter((_, i) => i !== 500);
 		},
 		clearAll() {
-			rows.splice(0, rows.length);
+			rows.value = [];
 		}
 	});
 };

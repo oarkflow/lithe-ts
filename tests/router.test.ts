@@ -9,6 +9,19 @@ test('router matches static and parameter routes', () => {
 	assert.equal(router.matched.value.route.component, B); assert.equal(router.params.id, '42');
 });
 
+test('malformed percent-encoded route params fall through instead of throwing', () => {
+	const NotFound = () => null;
+	const router = createRouter({
+		initialURL: 'http://test/items/%E0%A4%A',
+		routes: [
+			{ path: '/items/:id', component: () => null },
+			{ path: '*', component: NotFound }
+		]
+	});
+	assert.equal(router.matched.value.route.component, NotFound);
+	assert.deepEqual(router.params, {});
+});
+
 test('router middleware composes in order and can short-circuit', async () => {
 	const calls = [];
 	const router = createRouter({ initialURL: 'http://test/private', middleware: [async (_ctx, next) => { calls.push('before'); const value = await next(); calls.push('after'); return value; }], routes: [{ path: '/private', middleware: [async (_ctx, _next) => { calls.push('guard'); return 'denied'; }], load: () => { calls.push('load'); return 'loaded'; } }] });

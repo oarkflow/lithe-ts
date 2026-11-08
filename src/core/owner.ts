@@ -22,13 +22,6 @@ export interface Owner {
 let currentOwner: Owner | null = null,
     ownerSeq = 0;
 const owners = new Map<number, Owner>();
-function hook(name: string, ...args: unknown[]): unknown {
-    try {
-        return globalThis.__LITHE_OWNER_HOOK__?.[name]?.(...args);
-    } catch {
-        return undefined;
-    }
-}
 function createOwner(parent: Owner | null = currentOwner, options: OwnerOptions = {}): Owner {
     const owner: Owner = {
         id: ++ownerSeq,
@@ -41,7 +34,6 @@ function createOwner(parent: Owner | null = currentOwner, options: OwnerOptions 
         resume: options.resume || null
     };
     owners.set(owner.id, owner);
-    hook('create', owner);
     return owner;
 }
 export function getOwner(): Owner | null {
@@ -94,7 +86,10 @@ export function disposeOwner(owner: Owner | null | undefined): void {
     if (!owner || owner.disposed) return;
     owner.disposed = true;
     if (owner.children) {
-        for (const child of [...owner.children]) disposeOwner(child);
+        // disposeOwner unlinks each child from this set, and Set iteration
+        // remains live as those entries are removed. Avoid allocating a
+        // snapshot array during recursive teardown.
+        for (const child of owner.children) disposeOwner(child);
         owner.children.clear();
     }
     for (let i = owner.cleanups.length - 1; i >= 0; i--) try {
@@ -106,8 +101,11 @@ export function disposeOwner(owner: Owner | null | undefined): void {
     }
     owner.cleanups.length = 0;
     owner.parent?.children?.delete(owner);
-    hook('dispose', owner);
     owners.delete(owner.id);
+}
+/** @internal Used by resume serialization without maintaining a second owner registry. */
+export function __getOwners(): IterableIterator<Owner> {
+    return owners.values();
 }
 export function inspectOwners() {
     return [...owners.values()].map(owner => ({
@@ -129,7 +127,6 @@ export function createContext<T>(defaultValue: T, options: {
         const owner = getOwner();
         if (owner) {
             (owner.contexts ??= new Map()).set(key, props.value);
-            hook('context', owner, key, props.value);
         }
         return props.children ?? null;
     };
@@ -141,7 +138,6 @@ export function createContext<T>(defaultValue: T, options: {
         provide<R>(value: T, fn: () => R): R | Promise<Awaited<R>> {
             const scope = createScope(() => {
                 (currentOwner!.contexts ??= new Map()).set(key, value);
-                hook('context', currentOwner, key, value);
                 return fn();
             }, {
                 name: options.name ? `context:${options.name}` : null

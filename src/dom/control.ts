@@ -58,9 +58,9 @@ const NEGATIVE_ZERO = Symbol('lithe.negative-zero');
 function bucketKey(key) {
     return typeof key === 'number' && Object.is(key, -0) ? NEGATIVE_ZERO : key;
 }
-function renderScope(mountAny, view, options) {
+function renderScope(mountAny, view, options, lazy = false) {
     const fragment = document.createDocumentFragment(),
-        scope = createScope(() => mountAny(fragment, view, null, options), { detached: true });
+        scope = createScope(() => mountAny(fragment, lazy ? view() : view, null, options), { detached: true });
     return {
         fragment,
         scope,
@@ -79,10 +79,10 @@ export function Show(props) {
 // mounting). Wrapping the claim() call in its own owner scope mirrors
 // renderScope's `scope` so removeRow() can dispose a claimed row exactly
 // like a freshly-mounted one.
-function claimRow(claim, parent, node, view, options) {
+function claimRow(claim, parent, node, view, options, lazy = false) {
     let result;
     const scope = createScope(() => {
-        result = claim(parent, node, view, options);
+        result = claim(parent, node, lazy ? view() : view, options);
     }, { detached: true });
     return {
         scope,
@@ -92,6 +92,37 @@ function claimRow(claim, parent, node, view, options) {
 }
 function moveRowBefore(parent, row, anchor) {
     for (let i = 0; i < row.nodes.length; i++) parent.insertBefore(row.nodes[i], anchor);
+}
+// Replacing data objects without changing list positions or keys is common in
+// immutable update patterns. Rebuild only those rows in place; the general
+// keyed path otherwise allocates several full-list maps/sets and rechecks all
+// retained rows before discovering that their order never changed.
+function tryReplaceRowsInPlace(state, items, rawItems, parent, renderer, props, options, mountAny) {
+    const rows = state.rows;
+    if (!rows.length || items.length !== rows.length || !state.byKey) return false;
+    const changes = [];
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const item = itemAt(items, rawItems, i);
+        const base = keyFor(item, i, props.key);
+        if (bucketKey(base) !== bucketKey(row.base)) return false;
+        if (item !== row.item) {
+            const bucket = state.byKey.get(bucketKey(row.base));
+            if (!bucket || bucket[row.occ] !== row || !row.nodes.length || row.nodes[0].parentNode !== parent) return false;
+            changes.push({ i, item, base, row, bucket });
+        }
+    }
+    if (!changes.length) return true;
+    for (const change of changes) {
+        const { i, item, base, row, bucket } = change;
+        const built = renderScope(mountAny, () => renderer(item, row.index), options, true);
+        const next = { ...built, base, occ: row.occ, item, index: row.index };
+        parent.insertBefore(built.fragment, row.nodes[0]);
+        removeRow(row);
+        rows[i] = next;
+        bucket[row.occ] = next;
+    }
+    return true;
 }
 // Avoid constructing Maps, Sets, an LIS and several N-element scratch arrays
 // for the tiny edits that dominate interactive keyed lists. Identity is
@@ -126,6 +157,7 @@ function fastStructuralEdit(state, items, rawItems, parent, end, renderer, props
                 return true;
             }
         }
+        if (tryReplaceRowsInPlace(state, items, rawItems, parent, renderer, props, options, mountAny)) return true;
         let first = -1, second = -1;
         for (let i = 0; i < items.length; i++) {
             if (itemAt(items, rawItems, i) === rows[i].item) continue;
@@ -182,7 +214,7 @@ function tryAppend(state, items, rawItems, parent, end, renderer, props, options
         let bucket = byKey.get(bucketId);
         const occ = bucket ? bucket.length : 0;
         const index = indexSignal(i);
-        const built = renderScope(mountAny, renderer(currentItem, index), options);
+        const built = renderScope(mountAny, () => renderer(currentItem, index), options, true);
         const row = {
             ...built,
             base,
@@ -297,7 +329,7 @@ function syncForRows(state, items, parent, end, renderer, props, options, mountA
         }
         if (!row) {
             const index = indexSignal(i),
-                built = renderScope(mountAny, renderer(currentItem, index), options);
+                built = renderScope(mountAny, () => renderer(currentItem, index), options, true);
             row = {
                 ...built,
                 base,
@@ -472,7 +504,7 @@ For.__litheClaim = ({
                 occ = occurrences.get(bucketId) || 0;
             occurrences.set(bucketId, occ + 1);
             const index = indexSignal(i),
-                claimed = claimRow(claim, parent, cursor, renderer(items[i], index), options);
+                claimed = claimRow(claim, parent, cursor, () => renderer(items[i], index), options, true);
             state.rows.push({
                 scope: claimed.scope,
                 nodes: claimed.nodes,

@@ -1,12 +1,18 @@
 # Lithe Trust and DX Guide
 
 This guide defines how Lithe turns “faster and better” into verifiable engineering work.
+The supported feature inventory, environment policy, and staged release gates
+live in [the production readiness roadmap](PRODUCTION_ROADMAP.md).
 
 ## Stable vs Experimental
 
 Stable public APIs live under exports such as `@spbaniya/lithe`, `@spbaniya/lithe/core`, `@spbaniya/lithe/dom`, `@spbaniya/lithe/router`, `@spbaniya/lithe/data`, `@spbaniya/lithe/forms`, `@spbaniya/lithe/server`, and `@spbaniya/lithe/app`.
 
-Advanced optimization and renderer internals that may change live under `lithe/experimental`.
+Advanced optimization and renderer internals that may change live under
+`lithe/experimental`. New uncertain APIs stay experimental until their contract
+and verification coverage are established. Documented core APIs follow semver;
+deprecations require migration guidance and a removal window ending at a major
+release.
 
 ## Typed Helper APIs
 

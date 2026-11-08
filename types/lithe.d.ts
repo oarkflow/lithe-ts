@@ -7,6 +7,7 @@ declare module '@oarkflow/lithe/core' {
 	export interface ReadonlySignal<T> { readonly value: T; peek(): T; subscribe(fn: (value: T) => void): () => void; toJSON(): T; readonly __litheSignal: true; readonly __computed?: true }
 	export type Equality<T> = false | ((previous: T, next: T) => boolean);
 	export function signal<T>(value: T, options?: { name?: string; equals?: Equality<T> }): Signal<T>;
+	export function createSelector<T>(source: Signal<T> | ReadonlySignal<T>): ((key: T) => () => boolean) & { dispose(): void };
 	export function computed<T>(fn: () => T, options?: { name?: string; equals?: Equality<T> }): ReadonlySignal<T>;
 	export function effect(fn: (cleanup: (fn: () => void) => void) => void, options?: { sync?: boolean; priority?: Priority; name?: string }): () => void;
 	export function watch<T>(source: Signal<T> | ReadonlySignal<T> | (() => T), callback: (value: T, previous: T | undefined) => void, options?: { immediate?: boolean; deep?: boolean; sync?: boolean; priority?: Priority }): () => void;

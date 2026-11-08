@@ -211,9 +211,20 @@ export async function createServerModuleHandler(manifest, options = {}) {
         const url = new URL(request.url),
             m = url.pathname.match(/^\/_lithe\/module\/([^/]+)\/([^/]+)$/);
         if (!m) return null;
-        const id = decodeURIComponent(m[1]),
-            name = decodeURIComponent(m[2]),
-            entry = map.modules?.[id];
+        let id: string, name: string;
+        try {
+            id = decodeURIComponent(m[1]);
+            name = decodeURIComponent(m[2]);
+        } catch {
+            return Response.json({
+                ok: false,
+                error: {
+                    code: 'BAD_REQUEST',
+                    message: 'Malformed server module path'
+                }
+            }, { status: 400 });
+        }
+        const entry = map.modules?.[id];
         if (!entry) return Response.json({
             ok: false,
             error: {

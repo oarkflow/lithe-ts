@@ -76,9 +76,14 @@ async function frameworkSourceFor(outputRel) {
 async function compileFrameworkSource(file, generatedFile) {
 	const raw = await fs.readFile(file, 'utf8');
 	const ext = path.extname(file);
+	const rewriteCompiledImports = code => code.replace(
+		/(\bfrom\s*|\bimport\s*(?:\(\s*)?)(['"])(\.{1,2}\/[^'"]+)\.(?:tsx?|jsx?)(['"])/g,
+		'$1$2$3.js$4'
+	);
 	if (ext === '.tsx') {
 		const compiled = compileModule(raw, {
 			typescript: true,
+			typescriptMode: 'strip',
 			filename: path.relative(FRAMEWORK_ROOT, file),
 			generatedFile,
 			sourceMap: false,
@@ -90,12 +95,13 @@ async function compileFrameworkSource(file, generatedFile) {
 		if (compiled.diagnostics.some(d => d.severity === 'error')) {
 			throw new Error(`${path.relative(FRAMEWORK_ROOT, file)}: ${compiled.diagnostics.map(d => d.message).join('; ')}`);
 		}
-		return { raw, code: rewriteLocalJSX(compiled.code) };
+		// compileModule has already lowered JSX in TSX. Do not run the regex
+		// JSX fallback on its output; it can mistake TypeScript shaped syntax
+		// for JSX and corrupt otherwise valid JavaScript.
+		return { raw, code: rewriteCompiledImports(compiled.code) };
 	}
-	const code = ext === '.ts'
-		? stripTypeScript(raw, { filename: path.relative(FRAMEWORK_ROOT, file) })
-		: raw;
-	return { raw, code: rewriteLocalJSX(code) };
+	if (ext === '.ts') return { raw, code: rewriteCompiledImports(stripTypeScript(raw, { filename: path.relative(FRAMEWORK_ROOT, file), nativeMode: 'strip' })) };
+	return { raw, code: rewriteCompiledImports(rewriteLocalJSX(raw)) };
 }
 
 async function emitFrameworkTree(to) {
@@ -842,6 +848,10 @@ export async function buildProject(projectDir, options = {}) {
 		}
 		if (dce) code = eliminateDeadBranches(code);
 		if (minify) code = minifyJS(code);
+		const syntax = validateJavaScript(code, { filename: `__lithe/${rel}`, maxErrors: 8 });
+		if (!syntax.valid) {
+			throw new Error(`Invalid generated framework module __lithe/${rel}: ${syntax.diagnostics.map(d => `${d.line}:${d.column} ${d.message}`).join('; ')}`);
+		}
 		if (sourceMaps) {
 			const map = tracedSourceMap(
 				code,

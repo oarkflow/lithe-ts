@@ -1,5 +1,11 @@
 # Lithe v1.1.1 Production Readiness Validation
 
+> Historical validation record for the v1.1.1 run on 2026-09-02. These results
+> are not current release certification and do not establish evergreen
+> Firefox/Safari support or suite-wide performance wins. See
+> [`docs/PRODUCTION_ROADMAP.md`](docs/PRODUCTION_ROADMAP.md) for current support
+> targets and required release evidence.
+
 Validation date: 2026-09-02
 
 ## TypeScript conversion gates

@@ -23,6 +23,7 @@ The entire framework — runtime, compiler, build tooling, dev server, and CLI �
 - [Security defaults](#security-defaults)
 - [Bundler & toolchain integrations](#bundler--toolchain-integrations)
 - [TypeScript-first source policy](#typescript-first-source-policy)
+- [Production readiness roadmap](#production-readiness-roadmap)
 - [Repository structure](#repository-structure)
 - [Links](#links)
 
@@ -281,6 +282,7 @@ Components construct a **reactive graph**. A signal update targets only the affe
 
 - `signal<T>()` — a mutable reactive cell (`.value`, `.peek()`, `.update()`, `.subscribe()`)
 - `computed<T>()` — a lazy derived value that tracks dependencies and propagates changes
+- `createSelector(source)` — keyed boolean accessors that notify only for the previous and next selected key
 - `effect()` — a side-effect that re-runs when its tracked dependencies change
 - `state()` / `createStore()` — proxy objects and Zustand-style stores with selectors
 - `batch()` / `untrack()` — group update flushes and temporarily disable tracking
@@ -639,6 +641,18 @@ const plugin = litheTailwindPlugin();
 Node.js executes Lithe's tooling directly with `--experimental-strip-types`, so no TypeScript npm package, Babel, SWC, or ts-node is installed. The production builder compiles/strips `.ts`/`.tsx` into standards-based browser `.js` modules — that emitted JavaScript is a build artifact, not authored framework source (browsers ultimately execute JavaScript).
 
 The repository also ships minimal Node ambient shims in `types/node-shim.d.ts` so editors understand the zero-dependency tooling without requiring `@types/node`. Projects may still use their own richer Node typings externally.
+
+---
+
+## Production readiness roadmap
+
+The feature inventory, compatibility targets, current evidence gaps, verification
+matrix, and staged release gates are documented in
+[docs/PRODUCTION_ROADMAP.md](docs/PRODUCTION_ROADMAP.md). Evergreen Chrome,
+Firefox, and Safari are the browser targets; the checked-in real-browser
+comparison currently runs on Chromium, so the target matrix is not yet fully
+verified. Lithe's semantic type checker covers common framework-facing cases
+and is not a replacement for the TypeScript language service.
 
 ---
 

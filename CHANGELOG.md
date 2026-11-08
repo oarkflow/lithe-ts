@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Server and router input hardening; repeatable browser benchmark samples
+
+- CSRF verification now rejects non-string tokens, malformed/noncanonical
+  base64url, extra token segments, and empty secrets before constant-time
+  signature comparison. `safeJSON()` emits valid `null` JSON for top-level
+  values that `JSON.stringify()` cannot represent.
+- Server-module dispatch turns malformed percent encoding into a structured
+  `400 BAD_REQUEST` response. Router parameter decoding treats malformed path
+  segments as non-matches so wildcard/404 routes can handle them.
+- Computed signals now propagate invalidation when their subscriber list has
+  promoted to Set storage. Previously, computed values with more than eight
+  downstream observers could remain stale after their source changed.
+- The Chromium benchmark now runs one warmup and repeated fresh-page samples
+  (five by default), retaining raw timings and reporting median/min/max. Set
+  `LITHE_BENCH_RUNS` to choose 3–30 recorded samples.
+- Regression coverage: `tests/security.test.ts`, `tests/rpc.test.ts`, and
+  `tests/router.test.ts`.
+
 ### Critical rendering fix: sibling marker slots after the first one silently failed to mount
 
 `compiledTemplate`'s marker-path resolution (`src/dom/dom.ts`) recorded

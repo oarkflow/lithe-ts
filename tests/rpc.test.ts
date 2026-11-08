@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { server, handleServerFunction } from '../src/server/rpc.ts';
+import { server, handleServerFunction, createServerModuleHandler } from '../src/server/rpc.ts';
 import { object, number } from '../src/forms/schema.ts';
 import { createCSRF } from '../src/server/security.ts';
 
@@ -40,4 +40,14 @@ test('a CSRF-protected action rejects a missing or invalid token and accepts a v
 
   const withWrongSession = await handleServerFunction(new Request(`http://test/_lithe/action/${action.id}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-csrf-token': token }, body: JSON.stringify({ input: {} }) }), { csrf, sessionId: 'session-2' });
   assert.equal(withWrongSession.status, 403);
+});
+
+test('server module handler returns a client error for malformed percent encoding', async () => {
+  const handleModule = await createServerModuleHandler({ modules: {} });
+  const response = await handleModule(new Request('http://test/_lithe/module/%E0%A4%A/action', { method: 'POST' }));
+  assert.equal(response?.status, 400);
+  assert.deepEqual(await response?.json(), {
+    ok: false,
+    error: { code: 'BAD_REQUEST', message: 'Malformed server module path' }
+  });
 });

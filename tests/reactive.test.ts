@@ -1,11 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { signal, computed, effect, batch, state, createScope, onCleanup, explainSignal, watch, flushSync, markComponent, inspectReactiveGraph, enableReactiveDebug } from '../src/core/index.ts';
+import { signal, computed, createSelector, effect, batch, state, createScope, onCleanup, explainSignal, watch, flushSync, markComponent, inspectReactiveGraph, enableReactiveDebug } from '../src/core/index.ts';
 import { resumeComputations, serializeComputations } from '../src/core/reactive-resume.ts';
 
 test('signal and computed update fine-grained dependencies', () => {
   const a=signal(2), b=signal(3); const total=computed(()=>a.value*b.value);
   assert.equal(total.value,6); a.value=4; assert.equal(total.value,12);
+});
+
+test('createSelector updates only accessors for the previous and next keys', () => {
+	const selected = signal(0);
+	const scope = createScope(() => {
+		const isSelected = createSelector(selected);
+		const runs = [0, 0, 0];
+		for (let i = 0; i < runs.length; i++) effect(() => {
+			isSelected(i)();
+			runs[i]++;
+		}, { sync: true });
+		assert.deepEqual(runs, [1, 1, 1]);
+		selected.value = 2;
+		assert.deepEqual(runs, [2, 1, 2]);
+		selected.value = 1;
+		assert.deepEqual(runs, [2, 2, 3]);
+		return { runs, isSelected };
+	});
+	assert.deepEqual(scope.value.runs, [2, 2, 3]);
+	scope.dispose();
+	selected.value = 0;
+	assert.deepEqual(scope.value.runs, [2, 2, 3]);
 });
 
 test('computed retracks dynamic branches and releases stale dependencies', () => {
@@ -157,6 +179,19 @@ test('high-fanout dependencies update and dispose every subscriber', () => {
 	for (let i = 0; i < disposers.length; i += 2) disposers[i]();
 	value.value = 2;
 	assert.deepEqual(runs, Array.from({ length: 32 }, (_, i) => i % 2 ? 3 : 2));
+	for (const dispose of disposers) dispose();
+});
+
+test('high-fanout computed values notify every subscriber after promotion to Set storage', () => {
+	const source = signal(1);
+	const derived = computed(() => source.value * 2);
+	const observed = Array.from({ length: 32 }, () => 0);
+	const disposers = observed.map((_, index) => effect(() => {
+		observed[index] = derived.value;
+	}, { sync: true }));
+	assert.deepEqual(observed, Array.from({ length: 32 }, () => 2));
+	source.value = 2;
+	assert.deepEqual(observed, Array.from({ length: 32 }, () => 4));
 	for (const dispose of disposers) dispose();
 });
 

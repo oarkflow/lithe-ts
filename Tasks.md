@@ -341,9 +341,11 @@ Then verify:
 - [x] Release contains `Tasks.md`, README, architecture docs, declarations, source, tools, tests, example and changelog.
 - [x] Release ZIP receives an integrity test after creation.
 
-## Deliberate architecture boundaries (not unfinished tasks)
+## Completed v1.1 scope and continuing production-readiness work
 
-Lithe v1.1 is complete for its declared zero-third-party scope. The following are deliberate boundaries, not missing TODOs:
+The checklist above records the declared v1.1 implementation scope. It does not certify every target browser or deployment runtime, and completion is not evidence of competitive performance. Current support targets, evidence gaps, audits, and release gates are maintained in [`docs/PRODUCTION_ROADMAP.md`](docs/PRODUCTION_ROADMAP.md).
+
+The following remain deliberate architecture boundaries:
 
 1. JavaScript grammar authority is Node/V8 rather than a second reimplementation of the complete ECMAScript grammar. Lithe adds its own structural parser/scope/IR layer for framework transformations.
 2. TypeScript syntax transformation uses the Node 22 platform transformer when available plus an in-repo fallback; Lithe's semantic checker targets application/framework correctness and is not intended to reproduce the entire TypeScript language service/editor ecosystem.
@@ -351,6 +353,6 @@ Lithe v1.1 is complete for its declared zero-third-party scope. The following ar
 4. Image transcoding uses native browser codecs. Lithe does not bundle an AV1/WebP codec implementation.
 5. React/Vue/Svelte bridges accept those runtimes from the host application instead of bundling them.
 6. Native/mobile support is the framework-independent host renderer protocol; platform shells/drivers can implement it without changing the core.
-7. The browser integration test is implemented and passes when local HTTP is permitted; in restricted environments, execution is determined by the machine's browser/network policy.
+7. The browser integration test uses Chromium/CDP and passes when local HTTP is permitted; evergreen Firefox and Safari coverage remains roadmap work, and restricted environments must report a skip.
 
-**v1.1 implementation backlog: empty.**
+**v1.1 declared-scope checklist: complete. Production-readiness roadmap: active.**

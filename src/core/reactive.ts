@@ -474,15 +474,9 @@ export class ComputedImpl<T> extends Dependency implements ReadonlySignal<T> {
     markDirty(cause?: Dependency) {
         if (this._disposed || this._state === STATE_DIRTY) return;
         this._state = STATE_DIRTY;
-        if (this._subs) {
-            const arr = this._subs.slice();
-            const len = arr.length;
-            for (let i = 0; i < len; i++) {
-                arr[i].markDirty(this);
-            }
-        } else if (this._sub1) {
-            this._sub1.markDirty(this);
-        }
+        const subscribers = this._subscribers ? [...this._subscribers] : this._subs;
+        if (subscribers) for (const subscriber of subscribers) subscriber.markDirty(this);
+        else this._sub1?.markDirty(this);
     }
     _update() {
         if (this._state === STATE_CLEAN) return;
@@ -580,6 +574,42 @@ Object.defineProperty(ComputedImpl.prototype, '__dep', {
 });
 export function signal<T>(initial: T, options?: SignalOptions): Signal<T> {
     return new SignalImpl(initial, options);
+}
+/**
+ * Create keyed boolean accessors that notify only when their key's selected
+ * state changes. This avoids waking every row when a single selection moves.
+ */
+export function createSelector<T>(source: ReadonlySignal<T> | Signal<T>): ((key: T) => () => boolean) & { dispose(): void } {
+    const values = new Map<T, Set<Signal<boolean>>>();
+    let previous = source.peek();
+    const select = ((key: T) => {
+        let group = values.get(key);
+        if (!group) values.set(key, group = new Set());
+        const value = signal(Object.is(key, previous));
+        group.add(value);
+        if (getOwner()) onCleanup(() => {
+            group!.delete(value);
+            if (!group!.size) values.delete(key);
+        });
+        return () => value.value;
+    }) as ((key: T) => () => boolean) & { dispose(): void };
+    const stop = effect(() => {
+        const next = source.value;
+        if (Object.is(previous, next)) return;
+        const oldValues = values.get(previous);
+        const newValues = values.get(next);
+        previous = next;
+        batch(() => {
+            if (oldValues) for (const value of oldValues) value.value = false;
+            if (newValues) for (const value of newValues) value.value = true;
+        });
+    }, { sync: true });
+    select.dispose = () => {
+        stop();
+        values.clear();
+    };
+    if (getOwner()) onCleanup(select.dispose);
+    return select;
 }
 export function computed<T>(fn: () => T, options?: SignalOptions): ReadonlySignal<T> {
     return new ComputedImpl(fn, options);

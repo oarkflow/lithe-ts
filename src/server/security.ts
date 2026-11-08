@@ -13,9 +13,15 @@ export function escapeHTML(value) {
 const JSON_ESCAPE_RE = /[<>&\u2028\u2029]/g;
 const JSON_ESCAPE_MAP: Record<string, string> = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026', '\u2028': '\\u2028', '\u2029': '\\u2029' };
 export function safeJSON(value) {
-    return JSON.stringify(value).replace(JSON_ESCAPE_RE, ch => JSON_ESCAPE_MAP[ch]);
+    // JSON.stringify returns undefined for top-level values that JSON cannot
+    // represent (undefined, functions, and symbols). Resume/inline JSON callers
+    // need an actual JSON document, so normalize those values to JSON null.
+    const serialized = JSON.stringify(value);
+    return (serialized ?? 'null').replace(JSON_ESCAPE_RE, ch => JSON_ESCAPE_MAP[ch]);
 }
 export function createCSRF(secret = crypto.randomBytes(32).toString('hex')) {
+    if (typeof secret !== 'string' && !Buffer.isBuffer(secret)) throw new TypeError('CSRF secret must be a string or Buffer.');
+    if (secret.length === 0) throw new TypeError('CSRF secret must not be empty.');
     return {
         secret,
         issue(sessionId = '') {
@@ -24,8 +30,15 @@ export function createCSRF(secret = crypto.randomBytes(32).toString('hex')) {
             return `${nonce}.${sig}`;
         },
         verify(token, sessionId = '') {
-            if (!token || !token.includes('.')) return false;
-            const [nonce, sig] = token.split('.');
+            if (typeof token !== 'string') return false;
+            const parts = token.split('.');
+            if (parts.length !== 2) return false;
+            const [nonce, sig] = parts;
+            // A 16-byte nonce and SHA-256 HMAC have fixed unpadded base64url
+            // lengths. Reject alternate encodings and malformed input before
+            // decoding so Buffer's permissive base64 parser cannot normalize
+            // attacker-controlled token spellings.
+            if (!/^[A-Za-z0-9_-]{22}$/.test(nonce) || !/^[A-Za-z0-9_-]{43}$/.test(sig)) return false;
             const expected = crypto.createHmac('sha256', secret).update(`${sessionId}.${nonce}`).digest();
             let got;
             try {
@@ -33,7 +46,8 @@ export function createCSRF(secret = crypto.randomBytes(32).toString('hex')) {
             } catch {
                 return false;
             }
-            return got.length === expected.length && crypto.timingSafeEqual(got, expected);
+            if (got.length !== expected.length || got.toString('base64url') !== sig) return false;
+            return crypto.timingSafeEqual(got, expected);
         }
     };
 }

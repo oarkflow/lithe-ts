@@ -674,7 +674,8 @@ export function compileModule(source, options = {}) {
     let code = transformJSX(input);
     const jsxChanged = code !== input;
     if (options.typescript) code = stripTypeScript(code, {
-        filename: options.filename
+        filename: options.filename,
+        nativeMode: options.typescriptMode
     });
     const placed = transformWorkerPlacement(code, {
         autoWorkers: options.autoWorkers,

@@ -98,7 +98,7 @@ export function stripTypeScript(source, options = {}) {
     if (options.native !== false && typeof stripTypeScriptTypes === 'function') {
         try {
             return stripTypeScriptTypes(source, {
-                mode: 'transform',
+                mode: options.nativeMode || 'transform',
                 sourceMap: false,
                 sourceUrl: options.filename
             });

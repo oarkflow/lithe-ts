@@ -11,7 +11,7 @@ the DevTools Protocol.
 
 - Run DOM lifecycle tests in a real Chromium-family browser through CDP or WebDriver.
 - Pin comparison framework versions in `benchmarks/package.json`.
-- Report raw timings, browser version, platform, and commit SHA (`real-browser.ts` does this for every run — see its JSON output).
+- Report raw timing samples, median, min/max spread, browser version, platform, and commit SHA (`real-browser.ts` emits these in its JSON output).
 - Keep framework comparison dependencies inside `benchmarks/`; the root Lithe package remains zero-dependency.
 - Include vanilla DOM as a baseline and treat emulator (`framework-comparison.ts`) results as development smoke tests only.
 - Every app is a real production build (minified, `NODE_ENV=production` where applicable) — comparing a dev build of one framework against a production build of another isn't a fair result.
@@ -34,6 +34,14 @@ Each app exposes `window.runBenchmark()`, returning `{ scenario: milliseconds }`
 ```bash
 node --experimental-strip-types benchmarks/real-browser.ts
 ```
+
+The runner performs one warmup and five recorded runs per framework by default.
+Set `LITHE_BENCH_RUNS` to an integer from 3 to 30 to change the recorded run
+count. Every sample reloads the production app to reset its state. The JSON
+report retains each raw sample and summarizes each scenario with median/min/max;
+do not compare a report with a different run count or environment as if it were
+one continuous series. Set `LITHE_BENCH_OUTPUT=results/run.json` to persist the
+report from a run.
 
 Requires a local Chromium/Chrome binary (`CHROME_BIN`/`CHROMIUM_BIN` env vars, or the common install paths). Rebuild the apps first if their sources changed:
 
@@ -344,3 +352,64 @@ This finally puts Lithe ahead of React on the median swap result (0.4ms vs
 beat Solid (12.3ms vs 13.0ms), but the median did not, so that is not claimed
 as a general win. Creation is materially closer; immutable row replacement
 and wholesale owner/effect disposal remain behind both comparators.
+
+## Repeated-sample run (2026-11-08, aligned immutable list updates)
+
+Fifteen recorded samples after one warmup, Chrome 156.0.8078.80, macOS 25.5.0
+arm64. The Lithe scenario now uses signal-backed immutable array replacements,
+matching React and Solid's update shape. The run used a dirty worktree based on
+commit `f7551f5`, so the commit alone does not identify all measured source
+changes. Raw samples and computed summaries are preserved in
+[`results/chrome-156-macos-arm64-2026-11-08.json`](results/chrome-156-macos-arm64-2026-11-08.json).
+
+Median milliseconds (lower is better):
+
+| Scenario | vanilla | Lithe | React | Solid |
+| --- | ---: | ---: | ---: | ---: |
+| create1k | 2.6 | 8.6 | 0.9 | 9.7 |
+| update10th | 0.3 | 1.9 | 0.5 | 1.8 |
+| selectOne | 0.0 | 1.2 | 0.5 | 0.9 |
+| swapRows | 0.1 | 0.3 | 0.5 | 0.4 |
+| removeOne | 0.1 | 0.3 | 0.6 | 0.2 |
+| clearAll | 1.8 | 4.1 | 0.5 | 2.1 |
+
+In this run, Lithe is faster than Solid on initial creation and swapping, close
+on immutable row updates, and trails on selection, single-row removal, and
+clearing. React remains faster on most operations; Lithe is faster on swap and
+removal. A five-sample comparison before and after the same-key row replacement
+path moved `update10th` from 2.5ms to 1.7ms, but this 15-sample report measures
+1.9ms, so treat that early change as provisional. These are scoped Chrome
+results, not cross-browser or suite-wide wins. Several sub-millisecond
+operations are near timing resolution; use the recorded ranges when judging
+small differences.
+
+## Keyed selection and owner lifecycle, round 7
+
+The previous selection binding made every row effect read the same selected
+ID. A single selection change therefore woke all 1,000 rows. The new
+`createSelector(signal)` API provides per-key boolean accessors and updates
+only accessors for the old and new key. `<For>` evaluates row renderers inside
+their row owner so selector accessors are released when their rows are
+disposed. Owner tracking also now uses one registry rather than mirroring each
+owner through a global callback.
+
+Fifteen production runs after one warmup, Chrome 156.0.8078.80, macOS 25.5.0
+arm64. See raw samples in
+[`results/selector-lifecycle-2026-11-08.json`](results/selector-lifecycle-2026-11-08.json).
+
+| Scenario | Vanilla | Lithe | React | Solid |
+| --- | ---: | ---: | ---: | ---: |
+| create1k | 2.0 | 7.7 | 0.5 | 8.7 |
+| update10th | 0.3 | 1.5 | 0.3 | 1.6 |
+| selectOne | 0.0 | 0.0 | 0.3 | 0.7 |
+| swapRows | 0.0 | 0.2 | 0.2 | 0.3 |
+| removeOne | 0.1 | 0.2 | 0.3 | 0.2 |
+| clearAll | 1.3 | 2.9 | 0.3 | 1.6 |
+
+Times are milliseconds; values below the timer's 0.1ms resolution print as
+`0.0`. Lithe now beats Solid on update, selection, and swap in this particular
+row-table workload, ties Solid for one-row removal at the displayed precision,
+and remains slower on initial creation and full clearing. React remains faster
+on most scenarios. This is one Chrome workload, not evidence of a general
+cross-framework win. A `Range.deleteContents()` clear path was tested and
+reverted because it did not improve the median.
