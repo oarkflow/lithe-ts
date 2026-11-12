@@ -583,7 +583,7 @@ function eventChunkImports(code, sourceFile, sourceDir) {
 	);
 }
 
-export async function buildProject(projectDir, options = {}) {
+async function buildProjectInto(projectDir, options = {}) {
 	const report = (step, title, detail) => {
 		if (typeof options.onProgress === 'function') {
 			try {
@@ -1146,4 +1146,43 @@ export async function buildProject(projectDir, options = {}) {
 		throw new Error(`Performance budget failed:\n- ${violations.join('\n- ')}`);
 	}
 	return { out, manifest, serverOut };
+}
+
+/**
+ * Keep the last successful frontend build available until its replacement is
+ * complete. Writing directly into `dist` meant a compile error, budget failure,
+ * or interrupted build could leave a directory that looked like a valid but
+ * incomplete build to preview servers and other tooling.
+ */
+export async function buildProject(projectDir, options = {}) {
+	const root = path.resolve(projectDir);
+	const out = path.resolve(root, options.outDir || 'dist');
+	const suffix = `${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+	const staging = `${out}.lithe-staging-${suffix}`;
+	const backup = `${out}.lithe-backup-${suffix}`;
+	let movedPrevious = false;
+	try {
+		const result = await buildProjectInto(root, { ...options, outDir: staging });
+		if (await exists(out)) {
+			await fs.rename(out, backup);
+			movedPrevious = true;
+		}
+		try {
+			await fs.rename(staging, out);
+		} catch (error) {
+			if (movedPrevious) {
+				await fs.rename(backup, out);
+				movedPrevious = false;
+			}
+			throw error;
+		}
+		if (movedPrevious) await fs.rm(backup, { recursive: true, force: true });
+		return { ...result, out };
+	} catch (error) {
+		await fs.rm(staging, { recursive: true, force: true });
+		if (movedPrevious && !(await exists(out)) && await exists(backup)) {
+			await fs.rename(backup, out);
+		}
+		throw error;
+	}
 }

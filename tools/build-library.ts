@@ -178,12 +178,10 @@ async function writeCompiledTS(from: string, to: string, executable = false) {
 	const source = await fs.readFile(from, 'utf8');
 	const filename = path.relative(FRAMEWORK_ROOT, from);
 	let code = rewriteBuiltImports(stripTypeScript(source, { filename }));
-	const diagnostics = validateJavaScript(code, { filename, maxErrors: 5 }).diagnostics;
-	if (diagnostics.some(x => x.severity === 'error')) {
-		const first = diagnostics.find(x => x.severity === 'error');
-		throw new Error(`Library build emitted invalid JavaScript for ${filename}: ${first?.message}`);
-	}
 	if (!executable && filename.startsWith(`src${path.sep}`)) code = minifyJS(code);
+	// Validate the final emitted form once. validateJavaScript starts a Node
+	// subprocess for each invocation, so checking both the intermediate and
+	// final source doubled the process and parser work for every module.
 	const finalDiagnostics = validateJavaScript(code, { filename, maxErrors: 5 }).diagnostics;
 	if (finalDiagnostics.some(x => x.severity === 'error')) {
 		const first = finalDiagnostics.find(x => x.severity === 'error');

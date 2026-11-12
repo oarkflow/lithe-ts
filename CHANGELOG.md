@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.8
+
+- Reduced library build overhead by validating each emitted module once.
+- Build app output in a staging directory and keep the last successful output if a rebuild fails.
+- Resolve side-effect, CSS module, and scoped CSS imports in the dev server so CSS is not loaded as a JavaScript module.
+
 ## Unreleased
 
 ### Server and router input hardening; repeatable browser benchmark samples

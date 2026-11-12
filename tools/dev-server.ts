@@ -4,6 +4,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import { compileModule } from '../src/compiler/jsx.ts';
 import { compileTailwind, litheTailwindPlugin } from '../src/plugins/tailwind.ts';
+import { transformCSSModule, transformScopedCSS } from './css.ts';
 import { SRC_ROOT, exists, rewriteBareImports, rewritePathAliases, loadProjectAliases, rewriteLocalJSX, walk } from './shared.ts';
 
 const types = {
@@ -47,6 +48,44 @@ function normalizeURL(spec, from) {
 function sourceURL(root, file) {
 	const rel = path.relative(root, file).replace(/\\/g, '/');
 	return rel.startsWith('src/') ? '/' + rel.replace(/\.(?:jsx|tsx|ts)$/i, '.js') : null;
+}
+
+async function replaceDevCSSImports(code, sourceFile, root) {
+	async function replaceAsync(re, fn) {
+		let out = '', last = 0, match;
+		re.lastIndex = 0;
+		while ((match = re.exec(code))) {
+			out += code.slice(last, match.index) + await fn(match);
+			last = match.index + match[0].length;
+		}
+		return out + code.slice(last);
+	}
+	const cssURL = spec => '/' + path.relative(root, path.resolve(path.dirname(sourceFile), spec)).replace(/\\/g, '/');
+	const injectStyle = (url, css) => `(()=>{const k=${JSON.stringify(url)},m=globalThis.__LITHE_CSS_STYLES__||(globalThis.__LITHE_CSS_STYLES__=new Map());let s=m.get(k);if(!s){s=document.createElement('style');s.dataset.litheCss=k;(document.head||document.documentElement).append(s);m.set(k,s)}s.textContent=${JSON.stringify(css)}})();`;
+	code = await replaceAsync(
+		/import\s+([A-Za-z_$][\w$]*)\s+from\s+(['"])(\.\/?[^'"]+\.module\.css)\2\s*;?/g,
+		async m => {
+			const abs = path.resolve(path.dirname(sourceFile), m[3]);
+			const transformed = transformCSSModule(await fs.readFile(abs, 'utf8'), path.relative(root, abs));
+			return `const ${m[1]}=${JSON.stringify(transformed.mapping)};${injectStyle(cssURL(m[3]), transformed.css)}`;
+		}
+	);
+	code = await replaceAsync(
+		/import\s+([A-Za-z_$][\w$]*)\s+from\s+(['"])(\.\/?[^'"]+\.scoped\.css)\2\s*;?/g,
+		async m => {
+			const abs = path.resolve(path.dirname(sourceFile), m[3]);
+			const transformed = transformScopedCSS(await fs.readFile(abs, 'utf8'), path.relative(root, abs));
+			const value = { scope: transformed.scope, attr: { 'data-lithe-scope': transformed.scope } };
+			return `const ${m[1]}=${JSON.stringify(value)};${injectStyle(cssURL(m[3]), transformed.css)}`;
+		}
+	);
+	return replaceAsync(
+		/import\s+(['"])(\.\/?[^'"]+\.css)\1\s*;?/g,
+		async m => {
+			const url = cssURL(m[2]);
+			return `(()=>{const k=${JSON.stringify(url)};if(![...(document.querySelectorAll('link[data-lithe-css]'))].some(x=>x.dataset.litheCss===k)){const l=document.createElement('link');l.rel='stylesheet';l.dataset.litheCss=k;l.href=k;(document.head||document.documentElement).append(l)}})();`;
+		}
+	);
 }
 
 async function resolveSource(file) {
@@ -252,8 +291,9 @@ export async function devServer(projectDir, options = {}) {
 							stack: error.stack
 						}));
 						return;
-					}
 				}
+			}
+				code = await replaceDevCSSImports(code, file, root);
 				code = rewriteLocalJSX(rewritePathAliases(rewriteBareImports(code, '/__lithe/'), projectAliases));
 				const moduleURL = reqPath.replace(/\.(?:jsx|tsx|ts)$/i, '.js');
 				if (options.hmr !== false && moduleURL.startsWith('/src/')) {
